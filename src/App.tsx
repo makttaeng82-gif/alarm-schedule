@@ -43,6 +43,7 @@ type Schedule = {
 type ScheduleForm = Omit<Schedule, 'id'>
 type ActiveAlarm = Pick<Schedule, 'id' | 'title' | 'startTime' | 'alarmBeforeMinutes' | 'color'>
 
+// 브라우저 저장소 키입니다. 새로고침해도 일정과 테마가 유지됩니다.
 const STORAGE_KEY = 'alarm-schedule-items'
 const THEME_KEY = 'alarm-schedule-theme'
 
@@ -69,12 +70,20 @@ const sounds: Array<{ key: SoundKey; label: string }> = [
 
 const colors = ['#2563eb', '#059669', '#dc2626', '#7c3aed', '#ea580c', '#0891b2']
 
+// 자주 쓰는 타이머를 버튼 하나로 추가하기 위한 설정입니다.
+const quickTimers = [
+  { label: '30분 타이머', minutes: 30 },
+  { label: '1시간 타이머', minutes: 60 },
+  { label: '2시간 타이머', minutes: 120 },
+  { label: '3시간 타이머', minutes: 180 },
+]
+
 const emptyForm: ScheduleForm = {
   title: '',
   days: ['mon'],
   startTime: '09:00',
   endTime: '10:00',
-  alarmBeforeMinutes: 0,
+  alarmBeforeMinutes: 1,
   sound: 'classic',
   volume: 70,
   color: colors[0],
@@ -87,6 +96,22 @@ const toMinutes = (time: string) => {
   return hour * 60 + minute
 }
 
+const toTimeString = (totalMinutes: number) => {
+  const normalizedMinutes = (totalMinutes + 1440) % 1440
+  const hour = Math.floor(normalizedMinutes / 60)
+  const minute = normalizedMinutes % 60
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+const getNextEndTime = (startTime: string) => toTimeString(toMinutes(startTime) + 60)
+
+// 시작 시간이 바뀌면 종료 시간을 항상 시작 + 1시간으로 맞춥니다.
+// 예: 00:04 시작 -> 01:04 종료, 23:30 시작 -> 00:30 종료.
+const getStartTimeChange = (startTime: string) => ({
+  startTime,
+  endTime: getNextEndTime(startTime),
+})
+
 const formatAlarm = (time: string, before: number) => {
   const total = (toMinutes(time) - before + 1440) % 1440
   const hour = Math.floor(total / 60)
@@ -94,6 +119,7 @@ const formatAlarm = (time: string, before: number) => {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
+// 일정의 "알람이 울릴 실제 날짜/시간"을 오늘 날짜 기준 Date로 바꿉니다.
 const getAlarmDate = (schedule: Schedule) => {
   const [hour, minute] = formatAlarm(schedule.startTime, schedule.alarmBeforeMinutes)
     .split(':')
@@ -117,6 +143,23 @@ const getCurrentClock = () => {
   ].join(':')
 }
 
+const formatDuration = (milliseconds: number) => {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}시간 ${minutes}분 ${seconds}초`
+  }
+
+  return `${minutes}분 ${seconds}초`
+}
+
+const formatTimeFromDate = (date: Date) =>
+  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+
+// localStorage에 저장된 일정이 있으면 불러오고, 없으면 예시 일정을 보여줍니다.
 const getInitialSchedules = (): Schedule[] => {
   const saved = localStorage.getItem(STORAGE_KEY)
   if (!saved) {
@@ -127,7 +170,7 @@ const getInitialSchedules = (): Schedule[] => {
         days: ['mon', 'wed', 'fri'],
         startTime: '09:00',
         endTime: '10:00',
-        alarmBeforeMinutes: 0,
+        alarmBeforeMinutes: 1,
         sound: 'school',
         volume: 70,
         color: colors[0],
@@ -158,7 +201,7 @@ function App() {
   const [now, setNow] = useState(getCurrentClock())
   const [tickMs, setTickMs] = useState(0)
   const [theme, setTheme] = useState<Theme>(() =>
-    localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light',
+    localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark',
   )
   const [activeAlarm, setActiveAlarm] = useState<ActiveAlarm | null>(null)
   const [manualPreAlert, setManualPreAlert] = useState(false)
@@ -170,6 +213,8 @@ function App() {
   const alarmLoopRef = useRef<number | null>(null)
   const testAlarmTimeoutRef = useRef<number | null>(null)
 
+  // 브라우저는 사용자가 한번 클릭/입력하기 전 자동 재생을 막을 수 있습니다.
+  // 그래서 클릭/키 입력 시 AudioContext를 미리 만들어 둡니다.
   const getAudioContext = useCallback(() => {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext
     if (!AudioContextClass) return null
@@ -219,6 +264,25 @@ function App() {
       .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))
   }, [schedules])
 
+  // 오늘 남은 알람 중 가장 빨리 울릴 알람입니다. 없으면 null이라 화면에 표시하지 않습니다.
+  const nextTodayAlarm = useMemo(() => {
+    if (tickMs === 0) return null
+
+    const currentDay = getTodayKey()
+
+    return (
+      schedules
+        .filter((schedule) => schedule.enabled && schedule.days.includes(currentDay))
+        .map((schedule) => ({
+          schedule,
+          alarmTime: getAlarmDate(schedule).getTime(),
+        }))
+        .filter((item) => item.alarmTime > tickMs)
+        .sort((a, b) => a.alarmTime - b.alarmTime)[0] ?? null
+    )
+  }, [schedules, tickMs])
+
+  // 알람 10초 전이면 해당 일정 카드와 전체 배경을 깜빡이기 위해 id 목록을 만듭니다.
   const alertingScheduleIds = useMemo(() => {
     if (tickMs === 0) return new Set<string>()
 
@@ -255,7 +319,7 @@ function App() {
     const safeVolume = Math.min(Math.max(volume, 0), 100) / 100
     if (safeVolume === 0) return
 
-    // Web Audio로 외부 음원 없이 알람 샘플을 합성한다.
+    // Web Audio로 외부 음원 없이 알람 샘플을 합성합니다.
     selectedSound.pattern.forEach((frequency, index) => {
       const startTime = context.currentTime + index * selectedSound.gap
       const oscillator = context.createOscillator()
@@ -284,6 +348,7 @@ function App() {
     setActiveAlarm(null)
   }, [])
 
+  // 알람이 도래하면 알람 배너를 띄우고, 사용자가 멈출 때까지 소리를 반복합니다.
   const fireAlarm = useCallback(
     (schedule: Schedule) => {
       stopAlarm()
@@ -370,24 +435,77 @@ function App() {
     setEditingId(null)
   }
 
+  const selectToday = () => {
+    setForm((current) => ({ ...current, days: [getTodayKey()] }))
+  }
+
+  const changeStartTime = (startTime: string) => {
+    setForm((current) => ({
+      ...current,
+      ...getStartTimeChange(startTime),
+    }))
+  }
+
+  const changeEndTime = (endTime: string) => {
+    setForm((current) => ({
+      ...current,
+      endTime: toMinutes(endTime) > toMinutes(current.startTime) ? endTime : getNextEndTime(current.startTime),
+    }))
+  }
+
+  // 간편 타이머는 "현재 시각 + N분"에 오늘 알람을 바로 추가합니다.
+  const addQuickTimer = (minutes: number) => {
+    const nowDate = new Date()
+    const targetDate = new Date(nowDate.getTime() + minutes * 60_000)
+    targetDate.setSeconds(0, 0)
+
+    if (targetDate.getTime() <= nowDate.getTime() + minutes * 60_000) {
+      targetDate.setMinutes(targetDate.getMinutes() + 1)
+    }
+
+    const endDate = new Date(targetDate.getTime() + 30 * 60_000)
+    const title = minutes < 60 ? `${minutes}분 타이머` : `${minutes / 60}시간 타이머`
+
+    setSchedules((current) => [
+      ...current,
+      {
+        ...emptyForm,
+        id: crypto.randomUUID(),
+        title,
+        days: [getTodayKey()],
+        startTime: formatTimeFromDate(targetDate),
+        endTime: formatTimeFromDate(endDate),
+        alarmBeforeMinutes: 0,
+        sound: form.sound,
+        volume: form.volume,
+        color: form.color,
+        memo: `${nowDate.toLocaleTimeString()} 생성`,
+      },
+    ])
+  }
+
   const submitSchedule = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const cleanTitle = form.title.trim()
+    const safeForm =
+      toMinutes(form.endTime) > toMinutes(form.startTime)
+        ? form
+        : { ...form, endTime: getNextEndTime(form.startTime) }
 
-    if (!cleanTitle || form.days.length === 0 || toMinutes(form.endTime) <= toMinutes(form.startTime)) {
+    if (!cleanTitle || safeForm.days.length === 0) {
       return
     }
 
     if (editingId) {
       setSchedules((current) =>
         current.map((schedule) =>
-          schedule.id === editingId ? { ...form, id: editingId, title: cleanTitle } : schedule,
+          schedule.id === editingId ? { ...safeForm, id: editingId, title: cleanTitle } : schedule,
         ),
       )
     } else {
       setSchedules((current) => [
         ...current,
-        { ...form, id: crypto.randomUUID(), title: cleanTitle },
+        { ...safeForm, id: crypto.randomUUID(), title: cleanTitle },
       ])
     }
 
@@ -462,6 +580,17 @@ function App() {
         </div>
       </section>
 
+      {nextTodayAlarm && (
+        <section className="next-alarm">
+          <span>가장 가까운 알람</span>
+          <strong>{nextTodayAlarm.schedule.title}</strong>
+          <span>
+            {formatAlarm(nextTodayAlarm.schedule.startTime, nextTodayAlarm.schedule.alarmBeforeMinutes)}
+          </span>
+          <b>{formatDuration(nextTodayAlarm.alarmTime - tickMs)} 남음</b>
+        </section>
+      )}
+
       {activeAlarm && (
         <section className="alarm-banner" style={{ borderColor: activeAlarm.color }}>
           <div>
@@ -507,24 +636,32 @@ function App() {
             ))}
           </div>
 
+          <button className="secondary today-button" onClick={selectToday} type="button">
+            오늘 추가
+          </button>
+
           <div className="field-row">
             <label>
               시작
-              <input
-                type="time"
-                value={form.startTime}
-                onChange={(event) => setForm({ ...form, startTime: event.target.value })}
-                required
-              />
+              <span className="time-control">
+                <input
+                  type="time"
+                  value={form.startTime}
+                  onChange={(event) => changeStartTime(event.target.value)}
+                  required
+                />
+              </span>
             </label>
             <label>
               종료
-              <input
-                type="time"
-                value={form.endTime}
-                onChange={(event) => setForm({ ...form, endTime: event.target.value })}
-                required
-              />
+              <span className="time-control">
+                <input
+                  type="time"
+                  value={form.endTime}
+                  onChange={(event) => changeEndTime(event.target.value)}
+                  required
+                />
+              </span>
             </label>
           </div>
 
@@ -625,6 +762,22 @@ function App() {
               10초 후 알람 테스트
             </button>
           </div>
+
+          <div className="quick-timers">
+            <span className="label-text">간편 타이머</span>
+            <div className="timer-buttons">
+              {quickTimers.map((timer) => (
+                <button
+                  className="secondary"
+                  key={timer.minutes}
+                  onClick={() => addQuickTimer(timer.minutes)}
+                  type="button"
+                >
+                  {timer.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </form>
 
         <section className="panel schedule-panel">
@@ -679,6 +832,7 @@ function App() {
             )}
           </div>
         </section>
+
       </section>
 
       <section className="panel table-panel">
@@ -762,6 +916,17 @@ function App() {
           </table>
         </div>
       </section>
+
+      <footer className="site-footer">
+        <div>
+          <h2>이용사항</h2>
+          <p>일정은 이 브라우저의 localStorage에 저장됩니다. 다른 기기와 자동 동기화되지 않습니다.</p>
+        </div>
+        <div>
+          <h2>주의사항</h2>
+          <p>알람은 브라우저가 열려 있을 때 가장 안정적으로 동작합니다. 브라우저 종료, 절전, OS 알림 제한 상태에서는 보장되지 않습니다.</p>
+        </div>
+      </footer>
     </main>
   )
 }

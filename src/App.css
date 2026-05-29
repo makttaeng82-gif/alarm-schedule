@@ -82,6 +82,33 @@
   padding: 16px;
 }
 
+.next-alarm {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  color: var(--text);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 auto 20px;
+  max-width: 1440px;
+  padding: 14px 16px;
+}
+
+.next-alarm strong,
+.next-alarm b {
+  color: var(--heading);
+}
+
+.next-alarm b {
+  background: #2563eb;
+  border-radius: 7px;
+  color: #ffffff;
+  padding: 6px 10px;
+}
+
 .alarm-banner div {
   display: grid;
   gap: 4px;
@@ -200,6 +227,62 @@ textarea {
   padding: 9px 11px;
 }
 
+input[type='time'] {
+  color-scheme: light;
+}
+
+.time-control {
+  display: grid;
+  position: relative;
+}
+
+.time-control input[type='time'] {
+  padding-right: 40px;
+  width: 100%;
+}
+
+.time-control::after {
+  border: 1.8px solid var(--heading);
+  border-radius: 50%;
+  content: '';
+  height: 13px;
+  pointer-events: none;
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 13px;
+}
+
+.time-control::before {
+  background:
+    linear-gradient(var(--heading), var(--heading)) 50% 37% / 1.8px 4px no-repeat,
+    linear-gradient(var(--heading), var(--heading)) 62% 56% / 4px 1.8px no-repeat;
+  content: '';
+  height: 13px;
+  pointer-events: none;
+  position: absolute;
+  right: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 13px;
+  z-index: 1;
+}
+
+.app.dark input[type='time'] {
+  color-scheme: dark;
+}
+
+input[type='time']::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  height: 100%;
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+  z-index: 2;
+}
+
 textarea {
   min-height: 74px;
   resize: vertical;
@@ -290,6 +373,11 @@ button {
   gap: 10px;
 }
 
+.actions,
+.timer-buttons {
+  flex-wrap: wrap;
+}
+
 .primary {
   background: #2563eb;
   color: #ffffff;
@@ -298,6 +386,20 @@ button {
 .secondary {
   background: var(--button-muted);
   color: var(--button-muted-text);
+}
+
+.today-button {
+  width: fit-content;
+}
+
+.quick-timers {
+  display: grid;
+  gap: 8px;
+}
+
+.timer-buttons {
+  display: flex;
+  gap: 8px;
 }
 
 .danger {
@@ -422,6 +524,31 @@ button {
   max-width: 1400px;
 }
 
+.site-footer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 20px auto 0;
+  max-width: 1440px;
+  padding: 20px;
+}
+
+.site-footer h2 {
+  color: var(--heading);
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.site-footer p {
+  color: var(--text);
+  line-height: 1.55;
+  margin: 0;
+}
+
 .table-toolbar {
   justify-content: space-between;
   margin-bottom: 14px;
@@ -491,6 +618,11 @@ th {
     gap: 12px;
   }
 
+  .next-alarm {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .clock {
     width: fit-content;
   }
@@ -508,5 +640,9 @@ th {
   .table-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .site-footer {
+    grid-template-columns: 1fr;
   }
 }
