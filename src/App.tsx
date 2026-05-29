@@ -5,6 +5,7 @@ import {
   BellRing,
   CalendarDays,
   Check,
+  CircleStop,
   Moon,
   Pencil,
   Play,
@@ -40,6 +41,7 @@ type Schedule = {
 }
 
 type ScheduleForm = Omit<Schedule, 'id'>
+type ActiveAlarm = Pick<Schedule, 'id' | 'title' | 'startTime' | 'alarmBeforeMinutes' | 'color'>
 
 const STORAGE_KEY = 'alarm-schedule-items'
 const THEME_KEY = 'alarm-schedule-theme'
@@ -72,7 +74,7 @@ const emptyForm: ScheduleForm = {
   days: ['mon'],
   startTime: '09:00',
   endTime: '10:00',
-  alarmBeforeMinutes: 5,
+  alarmBeforeMinutes: 0,
   sound: 'classic',
   volume: 70,
   color: colors[0],
@@ -92,6 +94,15 @@ const formatAlarm = (time: string, before: number) => {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
+const getAlarmDate = (schedule: Schedule) => {
+  const [hour, minute] = formatAlarm(schedule.startTime, schedule.alarmBeforeMinutes)
+    .split(':')
+    .map(Number)
+  const alarmDate = new Date()
+  alarmDate.setHours(hour, minute, 0, 0)
+  return alarmDate
+}
+
 const getTodayKey = () => {
   const keyByDay: DayKey[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
   return keyByDay[new Date().getDay()]
@@ -106,11 +117,6 @@ const getCurrentClock = () => {
   ].join(':')
 }
 
-const getCurrentAlarmTime = () => {
-  const now = new Date()
-  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-}
-
 const getInitialSchedules = (): Schedule[] => {
   const saved = localStorage.getItem(STORAGE_KEY)
   if (!saved) {
@@ -121,7 +127,7 @@ const getInitialSchedules = (): Schedule[] => {
         days: ['mon', 'wed', 'fri'],
         startTime: '09:00',
         endTime: '10:00',
-        alarmBeforeMinutes: 5,
+        alarmBeforeMinutes: 0,
         sound: 'school',
         volume: 70,
         color: colors[0],
@@ -150,14 +156,28 @@ function App() {
   const [form, setForm] = useState<ScheduleForm>(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [now, setNow] = useState(getCurrentClock())
+  const [tickMs, setTickMs] = useState(0)
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light',
   )
+  const [activeAlarm, setActiveAlarm] = useState<ActiveAlarm | null>(null)
+  const [manualPreAlert, setManualPreAlert] = useState(false)
   const [notificationStatus, setNotificationStatus] = useState(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
   const triggeredRef = useRef<Set<string>>(new Set())
   const audioContextRef = useRef<AudioContext | null>(null)
+  const alarmLoopRef = useRef<number | null>(null)
+  const testAlarmTimeoutRef = useRef<number | null>(null)
+
+  const getAudioContext = useCallback(() => {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext
+    if (!AudioContextClass) return null
+
+    const context = audioContextRef.current ?? new AudioContextClass()
+    audioContextRef.current = context
+    return context
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules))
@@ -168,9 +188,29 @@ function App() {
   }, [theme])
 
   useEffect(() => {
-    const timerId = window.setInterval(() => setNow(getCurrentClock()), 1000)
+    const updateClock = () => {
+      setNow(getCurrentClock())
+      setTickMs(Date.now())
+    }
+
+    updateClock()
+    const timerId = window.setInterval(updateClock, 1000)
     return () => window.clearInterval(timerId)
   }, [])
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      const context = getAudioContext()
+      if (context) void context.resume()
+    }
+
+    window.addEventListener('pointerdown', unlockAudio)
+    window.addEventListener('keydown', unlockAudio)
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio)
+      window.removeEventListener('keydown', unlockAudio)
+    }
+  }, [getAudioContext])
 
   const todaySchedules = useMemo(() => {
     const today = getTodayKey()
@@ -179,27 +219,41 @@ function App() {
       .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))
   }, [schedules])
 
-  const playSound = useCallback((sound: SoundKey, volume: number) => {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext
-    if (!AudioContextClass) return
+  const alertingScheduleIds = useMemo(() => {
+    if (tickMs === 0) return new Set<string>()
 
-    const context = audioContextRef.current ?? new AudioContextClass()
-    audioContextRef.current = context
+    const currentDay = getTodayKey()
+
+    return new Set(
+      schedules
+        .filter((schedule) => schedule.enabled && schedule.days.includes(currentDay))
+        .filter((schedule) => {
+          const diff = getAlarmDate(schedule).getTime() - tickMs
+          return diff > 0 && diff <= 10_000
+        })
+        .map((schedule) => schedule.id),
+    )
+  }, [schedules, tickMs])
+
+  const playSound = useCallback((sound: SoundKey, volume: number) => {
+    const context = getAudioContext()
+    if (!context) return
     void context.resume()
 
     const soundMap: Record<SoundKey, { pattern: number[]; type: OscillatorType; gap: number }> = {
-      classic: { pattern: [740, 740, 740], type: 'triangle', gap: 0.28 },
-      school: { pattern: [880, 660, 880, 660], type: 'triangle', gap: 0.28 },
-      soft: { pattern: [440, 554, 659], type: 'sine', gap: 0.34 },
-      digital: { pattern: [988, 1175, 988, 1175, 1319], type: 'square', gap: 0.16 },
-      urgent: { pattern: [1047, 784, 1047, 784, 1047, 784], type: 'sawtooth', gap: 0.14 },
-      chime: { pattern: [523, 659, 784, 1047], type: 'sine', gap: 0.38 },
-      morning: { pattern: [392, 494, 587, 784, 988], type: 'sine', gap: 0.3 },
-      beep: { pattern: [1200, 1200, 1200, 1200], type: 'square', gap: 0.18 },
+      classic: { pattern: [988, 740, 988, 740, 1175], type: 'square', gap: 0.16 },
+      school: { pattern: [1047, 784, 659, 784, 1047, 784], type: 'triangle', gap: 0.22 },
+      soft: { pattern: [659, 784, 988, 1319, 988], type: 'sine', gap: 0.24 },
+      digital: { pattern: [1568, 1175, 1568, 1175, 1760, 1568], type: 'square', gap: 0.11 },
+      urgent: { pattern: [1397, 932, 1397, 932, 1397, 932, 1568], type: 'sawtooth', gap: 0.1 },
+      chime: { pattern: [523, 784, 1047, 1568, 1047, 784], type: 'sine', gap: 0.28 },
+      morning: { pattern: [587, 740, 880, 1175, 1480, 1175], type: 'triangle', gap: 0.2 },
+      beep: { pattern: [1800, 1800, 1200, 1800, 1800, 1200], type: 'square', gap: 0.09 },
     }
 
     const selectedSound = soundMap[sound]
     const safeVolume = Math.min(Math.max(volume, 0), 100) / 100
+    if (safeVolume === 0) return
 
     // Web Audio로 외부 음원 없이 알람 샘플을 합성한다.
     selectedSound.pattern.forEach((frequency, index) => {
@@ -210,16 +264,40 @@ function App() {
       oscillator.type = selectedSound.type
       gain.gain.setValueAtTime(0.0001, startTime)
       gain.gain.exponentialRampToValueAtTime(0.25 * safeVolume, startTime + 0.03)
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.22)
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.24)
       oscillator.connect(gain).connect(context.destination)
       oscillator.start(startTime)
-      oscillator.stop(startTime + 0.24)
+      oscillator.stop(startTime + 0.26)
     })
+  }, [getAudioContext])
+
+  const stopAlarm = useCallback(() => {
+    if (alarmLoopRef.current !== null) {
+      window.clearInterval(alarmLoopRef.current)
+      alarmLoopRef.current = null
+    }
+    if (testAlarmTimeoutRef.current !== null) {
+      window.clearTimeout(testAlarmTimeoutRef.current)
+      testAlarmTimeoutRef.current = null
+    }
+    setManualPreAlert(false)
+    setActiveAlarm(null)
   }, [])
 
   const fireAlarm = useCallback(
     (schedule: Schedule) => {
+      stopAlarm()
+      setActiveAlarm({
+        id: schedule.id,
+        title: schedule.title,
+        startTime: schedule.startTime,
+        alarmBeforeMinutes: schedule.alarmBeforeMinutes,
+        color: schedule.color,
+      })
       playSound(schedule.sound, schedule.volume)
+      alarmLoopRef.current = window.setInterval(() => {
+        playSound(schedule.sound, schedule.volume)
+      }, 1_600)
 
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         new Notification(schedule.title, {
@@ -227,24 +305,49 @@ function App() {
         })
       }
     },
-    [playSound],
+    [playSound, stopAlarm],
   )
+
+  useEffect(() => stopAlarm, [stopAlarm])
+
+  const startTestAlarm = () => {
+    const context = getAudioContext()
+    if (context) void context.resume()
+
+    setManualPreAlert(true)
+    testAlarmTimeoutRef.current = window.setTimeout(() => {
+      fireAlarm({
+        id: 'test-alarm',
+        title: '알람 테스트',
+        days: [getTodayKey()],
+        startTime: getCurrentClock().slice(0, 5),
+        endTime: getCurrentClock().slice(0, 5),
+        alarmBeforeMinutes: 0,
+        sound: form.sound,
+        volume: form.volume,
+        color: form.color,
+        enabled: true,
+        memo: '',
+      })
+    }, 10_000)
+  }
 
   useEffect(() => {
     const alarmTimer = window.setInterval(() => {
       const currentDay = getTodayKey()
-      const currentTime = getCurrentAlarmTime()
+      const currentTime = Date.now()
       const currentDate = new Date().toDateString()
 
-      // 화면 시계는 초 단위지만 알람 비교는 분 단위로 한 번만 실행한다.
+      // 실제 시각 기준으로 검사해 10초 전 강조와 알람 시작을 맞춘다.
       schedules.forEach((schedule) => {
-        const alarmTime = formatAlarm(schedule.startTime, schedule.alarmBeforeMinutes)
+        const alarmTime = getAlarmDate(schedule).getTime()
         const triggerKey = `${schedule.id}-${currentDate}-${alarmTime}`
 
         if (
           schedule.enabled &&
           schedule.days.includes(currentDay) &&
-          alarmTime === currentTime &&
+          currentTime >= alarmTime &&
+          currentTime < alarmTime + 60_000 &&
           !triggeredRef.current.has(triggerKey)
         ) {
           triggeredRef.current.add(triggerKey)
@@ -330,7 +433,15 @@ function App() {
   }
 
   return (
-    <main className={`app ${theme}`}>
+    <main
+      className={[
+        'app',
+        theme,
+        alertingScheduleIds.size > 0 ? 'pre-alarm' : '',
+        manualPreAlert ? 'pre-alarm' : '',
+        activeAlarm ? 'alarm-ringing' : '',
+      ].join(' ')}
+    >
       <section className="topbar">
         <div>
           <p className="eyebrow">Alarm Schedule</p>
@@ -350,6 +461,21 @@ function App() {
           </div>
         </div>
       </section>
+
+      {activeAlarm && (
+        <section className="alarm-banner" style={{ borderColor: activeAlarm.color }}>
+          <div>
+            <strong>{activeAlarm.title}</strong>
+            <span>
+              {activeAlarm.startTime} 시작, {activeAlarm.alarmBeforeMinutes}분 전 알람
+            </span>
+          </div>
+          <button className="stop-alarm" onClick={stopAlarm} type="button">
+            <CircleStop size={20} />
+            알람 멈춤
+          </button>
+        </section>
+      )}
 
       <section className="workspace">
         <form className="editor" onSubmit={submitSchedule}>
@@ -495,6 +621,9 @@ function App() {
             >
               <Play size={18} />
             </button>
+            <button className="secondary" onClick={startTestAlarm} type="button">
+              10초 후 알람 테스트
+            </button>
           </div>
         </form>
 
@@ -514,7 +643,11 @@ function App() {
                     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))
                     .map((schedule) => (
                       <article
-                        className={schedule.enabled ? 'schedule-item' : 'schedule-item disabled'}
+                        className={[
+                          'schedule-item',
+                          schedule.enabled ? '' : 'disabled',
+                          alertingScheduleIds.has(schedule.id) ? 'pre-alert' : '',
+                        ].join(' ')}
                         key={`${day.key}-${schedule.id}`}
                         style={{ borderColor: schedule.color }}
                       >

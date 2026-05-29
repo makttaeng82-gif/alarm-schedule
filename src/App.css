@@ -18,6 +18,9 @@
   color: var(--text);
   min-height: 100vh;
   padding: 28px;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .app.dark {
@@ -38,12 +41,65 @@
   --shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
 }
 
+.app.pre-alarm {
+  animation: preAlarmFlash 700ms steps(2, end) infinite;
+}
+
+.app.alarm-ringing {
+  animation: alarmFlash 420ms steps(2, end) infinite;
+}
+
+@keyframes preAlarmFlash {
+  50% {
+    background: #fef08a;
+  }
+}
+
+@keyframes alarmFlash {
+  50% {
+    background: #ef4444;
+  }
+}
+
 .topbar {
   align-items: center;
   display: flex;
   justify-content: space-between;
   margin: 0 auto 24px;
   max-width: 1440px;
+}
+
+.alarm-banner {
+  align-items: center;
+  background: var(--surface);
+  border: 3px solid;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto 20px;
+  max-width: 1440px;
+  padding: 16px;
+}
+
+.alarm-banner div {
+  display: grid;
+  gap: 4px;
+}
+
+.alarm-banner strong {
+  color: var(--heading);
+  font-size: 22px;
+}
+
+.alarm-banner span {
+  color: var(--text);
+}
+
+.stop-alarm {
+  background: #dc2626;
+  color: #ffffff;
+  min-width: 132px;
 }
 
 .eyebrow {
@@ -303,6 +359,20 @@ button {
   opacity: 0.46;
 }
 
+.schedule-item.pre-alert {
+  animation: itemFlash 500ms steps(2, end) infinite;
+  outline: 3px solid #facc15;
+  outline-offset: 2px;
+}
+
+@keyframes itemFlash {
+  50% {
+    background: #fef08a;
+    color: #0f172a;
+    transform: scale(1.02);
+  }
+}
+
 .schedule-item strong,
 .today-row strong {
   color: var(--heading);
@@ -413,6 +483,12 @@ th {
 
   .topbar-controls {
     justify-content: space-between;
+  }
+
+  .alarm-banner {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .clock {
