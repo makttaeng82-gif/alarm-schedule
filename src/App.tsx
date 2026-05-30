@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Check,
   CircleStop,
+  HelpCircle,
   Moon,
   Pencil,
   Play,
@@ -42,10 +43,43 @@ type Schedule = {
 
 type ScheduleForm = Omit<Schedule, 'id'>
 type ActiveAlarm = Pick<Schedule, 'id' | 'title' | 'startTime' | 'alarmBeforeMinutes' | 'color'>
+type TimePickerProps = {
+  value: string
+  onChange: (time: string) => void
+}
+type QuickTimer = {
+  id: string
+  minutes: number
+}
+type HelpKey = 'schedule' | 'days' | 'time' | 'alarm' | 'timer'
+
+const helpContent: Record<HelpKey, { title: string; body: string }> = {
+  schedule: {
+    title: '일정 기본 정보',
+    body: '일정명, 메모, 색상은 목록과 주간표에서 일정을 구분하기 위한 정보입니다. 알람 사용을 끄면 해당 일정은 저장만 되고 울리지 않습니다.',
+  },
+  days: {
+    title: '요일 선택',
+    body: '선택한 요일에만 일정 알람이 동작합니다. 오늘 버튼은 현재 날짜의 요일만 빠르게 선택합니다.',
+  },
+  time: {
+    title: '시작/종료/볼륨',
+    body: '시작 시간을 바꾸면 종료 시간은 자동으로 1시간 뒤로 맞춰집니다. 볼륨은 알람 소리 크기에 적용됩니다.',
+  },
+  alarm: {
+    title: '알람 설정',
+    body: '알람 전 값은 시작 시간보다 몇 분 먼저 울릴지 정합니다. 소리는 듣기 버튼으로 미리 확인할 수 있습니다.',
+  },
+  timer: {
+    title: '사용자 설정 타이머',
+    body: '요일과 무관하게 현재 시각 기준으로 몇 시간 몇 분 뒤 알람을 바로 추가합니다. 만든 타이머는 수정하거나 삭제할 수 있습니다.',
+  },
+}
 
 // 브라우저 저장소 키입니다. 새로고침해도 일정과 테마가 유지됩니다.
 const STORAGE_KEY = 'alarm-schedule-items'
 const THEME_KEY = 'alarm-schedule-theme'
+const QUICK_TIMERS_KEY = 'alarm-schedule-quick-timers'
 
 const days: Array<{ key: DayKey; label: string }> = [
   { key: 'mon', label: '월' },
@@ -68,19 +102,34 @@ const sounds: Array<{ key: SoundKey; label: string }> = [
   { key: 'beep', label: '비프' },
 ]
 
-const colors = ['#2563eb', '#059669', '#dc2626', '#7c3aed', '#ea580c', '#0891b2']
-
-// 자주 쓰는 타이머를 버튼 하나로 추가하기 위한 설정입니다.
-const quickTimers = [
-  { label: '30분 타이머', minutes: 30 },
-  { label: '1시간 타이머', minutes: 60 },
-  { label: '2시간 타이머', minutes: 120 },
-  { label: '3시간 타이머', minutes: 180 },
+const colors = [
+  '#dc2626',
+  '#ea580c',
+  '#f59e0b',
+  '#eab308',
+  '#22c55e',
+  '#059669',
+  '#14b8a6',
+  '#0891b2',
+  '#2563eb',
+  '#4f46e5',
+  '#7c3aed',
+  '#db2777',
 ]
 
-const emptyForm: ScheduleForm = {
+const defaultQuickTimers: QuickTimer[] = [
+  { id: 'quick-30', minutes: 30 },
+  { id: 'quick-60', minutes: 60 },
+  { id: 'quick-120', minutes: 120 },
+  { id: 'quick-180', minutes: 180 },
+]
+
+const timerHourOptions = Array.from({ length: 12 }, (_, index) => index)
+const timerMinuteOptions = Array.from({ length: 60 }, (_, index) => index)
+
+const getEmptyForm = (): ScheduleForm => ({
   title: '',
-  days: ['mon'],
+  days: [getTodayKey()],
   startTime: '09:00',
   endTime: '10:00',
   alarmBeforeMinutes: 1,
@@ -89,7 +138,7 @@ const emptyForm: ScheduleForm = {
   color: colors[0],
   enabled: true,
   memo: '',
-}
+})
 
 const toMinutes = (time: string) => {
   const [hour, minute] = time.split(':').map(Number)
@@ -129,9 +178,14 @@ const getAlarmDate = (schedule: Schedule) => {
   return alarmDate
 }
 
-const getTodayKey = () => {
+function getTodayKey() {
   const keyByDay: DayKey[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
   return keyByDay[new Date().getDay()]
+}
+
+const getDayKeyFromDate = (date: Date) => {
+  const keyByDay: DayKey[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+  return keyByDay[date.getDay()]
 }
 
 const getCurrentClock = () => {
@@ -158,6 +212,95 @@ const formatDuration = (milliseconds: number) => {
 
 const formatTimeFromDate = (date: Date) =>
   `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+
+const formatTimerLabel = (minutes: number) => {
+  if (minutes < 60) return `${minutes}분 후`
+
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes === 0
+    ? `${hours}시간 후`
+    : `${hours}시간 ${remainingMinutes}분 후`
+}
+
+const hours = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'))
+const minutes = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'))
+
+function TimePicker({ value, onChange }: TimePickerProps) {
+  const [open, setOpen] = useState(false)
+  const pickerRef = useRef<HTMLSpanElement | null>(null)
+  const [selectedHour, selectedMinute] = value.split(':')
+
+  useEffect(() => {
+    if (!open) return
+
+    const closePicker = (event: MouseEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', closePicker)
+    return () => document.removeEventListener('mousedown', closePicker)
+  }, [open])
+
+  const changeHour = (hour: string) => {
+    onChange(`${hour}:${selectedMinute}`)
+  }
+
+  const changeMinute = (minute: string) => {
+    onChange(`${selectedHour}:${minute}`)
+  }
+
+  return (
+    <span className="time-control" ref={pickerRef}>
+      <button className="time-trigger" onClick={() => setOpen((current) => !current)} type="button">
+        {value}
+      </button>
+      {open && (
+        <div className="time-menu">
+          <div className="time-column" aria-label="시">
+            {hours.map((hour) => (
+              <button
+                className={hour === selectedHour ? 'time-option active' : 'time-option'}
+                key={hour}
+                onClick={() => changeHour(hour)}
+                type="button"
+              >
+                {hour}
+              </button>
+            ))}
+          </div>
+          <div className="time-column" aria-label="분">
+            {minutes.map((minute) => (
+              <button
+                className={minute === selectedMinute ? 'time-option active' : 'time-option'}
+                key={minute}
+                onClick={() => changeMinute(minute)}
+                type="button"
+              >
+                {minute}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </span>
+  )
+}
+
+function HelpButton({ target, onOpen }: { target: HelpKey; onOpen: (target: HelpKey) => void }) {
+  return (
+    <button
+      aria-label={`${helpContent[target].title} 도움말`}
+      className="help-button"
+      onClick={() => onOpen(target)}
+      type="button"
+    >
+      <HelpCircle size={16} />
+    </button>
+  )
+}
 
 // localStorage에 저장된 일정이 있으면 불러오고, 없으면 예시 일정을 보여줍니다.
 const getInitialSchedules = (): Schedule[] => {
@@ -194,10 +337,29 @@ const getInitialSchedules = (): Schedule[] => {
   }
 }
 
+const getInitialQuickTimers = (): QuickTimer[] => {
+  const saved = localStorage.getItem(QUICK_TIMERS_KEY)
+  if (!saved) return defaultQuickTimers
+
+  try {
+    const parsed = JSON.parse(saved) as QuickTimer[]
+    return Array.isArray(parsed) && parsed.length > 0
+      ? parsed.filter((timer) => typeof timer.minutes === 'number' && timer.minutes > 0)
+      : defaultQuickTimers
+  } catch {
+    return defaultQuickTimers
+  }
+}
+
 function App() {
   const [schedules, setSchedules] = useState<Schedule[]>(getInitialSchedules)
-  const [form, setForm] = useState<ScheduleForm>(emptyForm)
+  const [form, setForm] = useState<ScheduleForm>(getEmptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [quickTimers, setQuickTimers] = useState<QuickTimer[]>(getInitialQuickTimers)
+  const [quickTimerHours, setQuickTimerHours] = useState(0)
+  const [quickTimerMinutes, setQuickTimerMinutes] = useState(30)
+  const [editingQuickTimerId, setEditingQuickTimerId] = useState<string | null>(null)
+  const [activeHelp, setActiveHelp] = useState<HelpKey | null>(null)
   const [now, setNow] = useState(getCurrentClock())
   const [tickMs, setTickMs] = useState(0)
   const [theme, setTheme] = useState<Theme>(() =>
@@ -227,6 +389,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules))
   }, [schedules])
+
+  useEffect(() => {
+    localStorage.setItem(QUICK_TIMERS_KEY, JSON.stringify(quickTimers))
+  }, [quickTimers])
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme)
@@ -431,7 +597,7 @@ function App() {
   }
 
   const resetForm = () => {
-    setForm(emptyForm)
+    setForm(getEmptyForm())
     setEditingId(null)
   }
 
@@ -453,7 +619,55 @@ function App() {
     }))
   }
 
-  // 간편 타이머는 "현재 시각 + N분"에 오늘 알람을 바로 추가합니다.
+  const resetQuickTimerForm = () => {
+    setQuickTimerHours(0)
+    setQuickTimerMinutes(30)
+  }
+
+  const saveQuickTimer = () => {
+    const safeHours = Math.max(0, Math.floor(quickTimerHours) || 0)
+    const safeRemainingMinutes = Math.min(59, Math.max(0, Math.floor(quickTimerMinutes) || 0))
+    const safeMinutes = Math.max(1, safeHours * 60 + safeRemainingMinutes)
+
+    if (editingQuickTimerId) {
+      setQuickTimers((current) =>
+        current.map((timer) =>
+          timer.id === editingQuickTimerId ? { ...timer, minutes: safeMinutes } : timer,
+        ).sort((a, b) => a.minutes - b.minutes),
+      )
+      setEditingQuickTimerId(null)
+      resetQuickTimerForm()
+      return
+    }
+
+    setQuickTimers((current) => {
+      if (current.some((timer) => timer.minutes === safeMinutes)) return current
+      return [...current, { id: crypto.randomUUID(), minutes: safeMinutes }].sort(
+        (a, b) => a.minutes - b.minutes,
+      )
+    })
+  }
+
+  const editQuickTimer = (timer: QuickTimer) => {
+    setQuickTimerHours(Math.floor(timer.minutes / 60))
+    setQuickTimerMinutes(timer.minutes % 60)
+    setEditingQuickTimerId(timer.id)
+  }
+
+  const removeQuickTimer = (id: string) => {
+    setQuickTimers((current) => current.filter((timer) => timer.id !== id))
+    if (editingQuickTimerId === id) {
+      setEditingQuickTimerId(null)
+      resetQuickTimerForm()
+    }
+  }
+
+  const cancelQuickTimerEdit = () => {
+    setEditingQuickTimerId(null)
+    resetQuickTimerForm()
+  }
+
+  // 간편 타이머는 "현재 시각 + N분"에 알람을 바로 추가합니다.
   const addQuickTimer = (minutes: number) => {
     const nowDate = new Date()
     const targetDate = new Date(nowDate.getTime() + minutes * 60_000)
@@ -464,15 +678,15 @@ function App() {
     }
 
     const endDate = new Date(targetDate.getTime() + 30 * 60_000)
-    const title = minutes < 60 ? `${minutes}분 타이머` : `${minutes / 60}시간 타이머`
+    const title = formatTimerLabel(minutes)
 
     setSchedules((current) => [
       ...current,
       {
-        ...emptyForm,
+        ...getEmptyForm(),
         id: crypto.randomUUID(),
         title,
-        days: [getTodayKey()],
+        days: [getDayKeyFromDate(targetDate)],
         startTime: formatTimeFromDate(targetDate),
         endTime: formatTimeFromDate(endDate),
         alarmBeforeMinutes: 0,
@@ -565,6 +779,9 @@ function App() {
           <p className="eyebrow">Alarm Schedule</p>
           <h1>알람 스케줄표</h1>
         </div>
+        <div className="clock" aria-label="현재 시간">
+          {now}
+        </div>
         <div className="topbar-controls">
           <button
             className="theme-toggle"
@@ -574,9 +791,6 @@ function App() {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             {theme === 'dark' ? '라이트' : '다크'}
           </button>
-          <div className="clock" aria-label="현재 시간">
-            {now}
-          </div>
         </div>
       </section>
 
@@ -611,75 +825,114 @@ function App() {
           <div className="section-title">
             <CalendarDays size={20} />
             <h2>{editingId ? '일정 편집' : '일정 추가'}</h2>
+            <HelpButton target="schedule" onOpen={setActiveHelp} />
           </div>
 
-          <label>
-            일정명
-            <input
-              value={form.title}
-              onChange={(event) => setForm({ ...form, title: event.target.value })}
-              placeholder="예: 회의"
-              required
-            />
-          </label>
+          <div className="title-days-row">
+            <label className="title-field">
+              일정명
+              <input
+                value={form.title}
+                onChange={(event) => setForm({ ...form, title: event.target.value })}
+                placeholder="예: 회의"
+                required
+              />
+            </label>
 
-          <div className="day-grid" aria-label="요일 선택">
-            {days.map((day) => (
-              <button
-                className={form.days.includes(day.key) ? 'day active' : 'day'}
-                key={day.key}
-                onClick={() => toggleDay(day.key)}
-                type="button"
-              >
-                {day.label}
-              </button>
-            ))}
-          </div>
-
-          <button className="secondary today-button" onClick={selectToday} type="button">
-            오늘 추가
-          </button>
-
-          <div className="field-row">
-            <label>
-              시작
-              <span className="time-control">
-                <input
-                  type="time"
-                  value={form.startTime}
-                  onChange={(event) => changeStartTime(event.target.value)}
-                  required
-                />
+            <div className="day-field">
+              <span className="label-text">
+                요일
+                <HelpButton target="days" onOpen={setActiveHelp} />
               </span>
+              <div className="day-controls">
+                <div className="day-grid" aria-label="요일 선택">
+                  {days.map((day) => (
+                    <button
+                      className={form.days.includes(day.key) ? 'day active' : 'day'}
+                      key={day.key}
+                      onClick={() => toggleDay(day.key)}
+                      type="button"
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+                <button className="secondary today-button" onClick={selectToday} type="button">
+                  오늘
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="time-volume-row">
+            <label>
+              <span className="label-text">
+                시작
+                <HelpButton target="time" onOpen={setActiveHelp} />
+              </span>
+              <TimePicker value={form.startTime} onChange={changeStartTime} />
             </label>
             <label>
               종료
-              <span className="time-control">
-                <input
-                  type="time"
-                  value={form.endTime}
-                  onChange={(event) => changeEndTime(event.target.value)}
-                  required
-                />
-              </span>
+              <TimePicker value={form.endTime} onChange={changeEndTime} />
+            </label>
+            <label>
+              볼륨 {form.volume}%
+              <input
+                max="100"
+                min="0"
+                onChange={(event) => setForm({ ...form, volume: Number(event.target.value) })}
+                step="5"
+                type="range"
+                value={form.volume}
+              />
             </label>
           </div>
 
-          <label>
-            볼륨 {form.volume}%
-            <input
-              max="100"
-              min="0"
-              onChange={(event) => setForm({ ...form, volume: Number(event.target.value) })}
-              step="5"
-              type="range"
-              value={form.volume}
-            />
-          </label>
-
-          <div className="field-row">
+          <div className="memo-settings-row">
             <label>
-              알람 전
+              메모
+              <textarea
+                value={form.memo}
+                onChange={(event) => setForm({ ...form, memo: event.target.value })}
+                rows={3}
+              />
+            </label>
+
+            <div className="settings-stack">
+              <label className="toggle">
+                <input
+                  checked={form.enabled}
+                  onChange={(event) => setForm({ ...form, enabled: event.target.checked })}
+                  type="checkbox"
+                />
+                알람 사용
+              </label>
+
+              <div>
+                <span className="label-text">색상</span>
+                <div className="swatches">
+                  {colors.map((color) => (
+                    <button
+                      aria-label={color}
+                      className={form.color === color ? 'swatch active' : 'swatch'}
+                      key={color}
+                      onClick={() => setForm({ ...form, color })}
+                      style={{ backgroundColor: color }}
+                      type="button"
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="alarm-action-row">
+            <label>
+              <span className="label-text">
+                알람 전
+                <HelpButton target="alarm" onOpen={setActiveHelp} />
+              </span>
               <input
                 min="0"
                 max="120"
@@ -703,82 +956,108 @@ function App() {
                 ))}
               </select>
             </label>
-          </div>
-
-          <div>
-            <span className="label-text">색상</span>
-            <div className="swatches">
-              {colors.map((color) => (
-                <button
-                  aria-label={color}
-                  className={form.color === color ? 'swatch active' : 'swatch'}
-                  key={color}
-                  onClick={() => setForm({ ...form, color })}
-                  style={{ backgroundColor: color }}
-                  type="button"
-                />
-              ))}
-            </div>
-          </div>
-
-          <label>
-            메모
-            <textarea
-              value={form.memo}
-              onChange={(event) => setForm({ ...form, memo: event.target.value })}
-              rows={3}
-            />
-          </label>
-
-          <label className="toggle">
-            <input
-              checked={form.enabled}
-              onChange={(event) => setForm({ ...form, enabled: event.target.checked })}
-              type="checkbox"
-            />
-            알람 사용
-          </label>
-
-          <div className="actions">
-            <button className="primary" type="submit">
-              {editingId ? <Check size={18} /> : <Plus size={18} />}
-              {editingId ? '저장' : '추가'}
-            </button>
-            {editingId && (
-              <button className="secondary" onClick={resetForm} type="button">
-                <X size={18} />
-                취소
+            <div className="actions">
+              <button className="primary" type="submit">
+                {editingId ? <Check size={18} /> : <Plus size={18} />}
+                {editingId ? '저장' : '추가'}
               </button>
-            )}
-            <button
-              aria-label="소리 테스트"
-              className="secondary icon-only"
-              onClick={() => playSound(form.sound, form.volume)}
-              type="button"
-            >
-              <Play size={18} />
-            </button>
-            <button className="secondary" onClick={startTestAlarm} type="button">
-              10초 후 알람 테스트
-            </button>
-          </div>
-
-          <div className="quick-timers">
-            <span className="label-text">간편 타이머</span>
-            <div className="timer-buttons">
-              {quickTimers.map((timer) => (
-                <button
-                  className="secondary"
-                  key={timer.minutes}
-                  onClick={() => addQuickTimer(timer.minutes)}
-                  type="button"
-                >
-                  {timer.label}
+              {editingId && (
+                <button className="secondary" onClick={resetForm} type="button">
+                  <X size={18} />
+                  취소
                 </button>
-              ))}
+              )}
+              <button
+                className="secondary"
+                onClick={() => playSound(form.sound, form.volume)}
+                type="button"
+              >
+                <Play size={18} />
+                듣기
+              </button>
+              <button className="secondary" onClick={startTestAlarm} type="button">
+                10초 후 알람 테스트
+              </button>
             </div>
           </div>
         </form>
+
+        <section className="panel quick-timers">
+          <div className="timer-header">
+            <span className="label-text">
+              사용자 설정 타이머
+              <HelpButton target="timer" onOpen={setActiveHelp} />
+            </span>
+          </div>
+          <div className="timer-editor">
+            <label className="timer-input-label">
+              <select
+                aria-label="타이머 시간"
+                value={quickTimerHours}
+                onChange={(event) => setQuickTimerHours(Number(event.target.value))}
+              >
+                {timerHourOptions.map((hour) => (
+                  <option key={hour} value={hour}>
+                    {hour}
+                  </option>
+                ))}
+              </select>
+              <span>시간</span>
+            </label>
+            <label className="timer-input-label">
+              <select
+                aria-label="타이머 분"
+                value={quickTimerMinutes}
+                onChange={(event) => setQuickTimerMinutes(Number(event.target.value))}
+              >
+                {timerMinuteOptions.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {minute}
+                  </option>
+                ))}
+              </select>
+              <span>분 후</span>
+            </label>
+            <button className="primary" onClick={saveQuickTimer} type="button">
+              {editingQuickTimerId ? <Check size={18} /> : <Plus size={18} />}
+              {editingQuickTimerId ? '저장' : '추가'}
+            </button>
+            {editingQuickTimerId && (
+              <button className="secondary icon-only" onClick={cancelQuickTimerEdit} type="button">
+                <X size={18} />
+              </button>
+            )}
+          </div>
+          <div className="timer-buttons">
+            {quickTimers.map((timer) => (
+              <div className="timer-item" key={timer.id}>
+                <button
+                  className="secondary timer-run"
+                  onClick={() => addQuickTimer(timer.minutes)}
+                  type="button"
+                >
+                  {formatTimerLabel(timer.minutes)}
+                </button>
+                <button
+                  aria-label={`${formatTimerLabel(timer.minutes)} 수정`}
+                  className="icon-only secondary"
+                  onClick={() => editQuickTimer(timer)}
+                  type="button"
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  aria-label={`${formatTimerLabel(timer.minutes)} 삭제`}
+                  className="icon-only danger"
+                  onClick={() => removeQuickTimer(timer.id)}
+                  type="button"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
 
         <section className="panel schedule-panel">
           <div className="section-title">
@@ -927,6 +1206,30 @@ function App() {
           <p>알람은 브라우저가 열려 있을 때 가장 안정적으로 동작합니다. 브라우저 종료, 절전, OS 알림 제한 상태에서는 보장되지 않습니다.</p>
         </div>
       </footer>
+
+      {activeHelp && (
+        <div className="help-overlay" role="presentation" onClick={() => setActiveHelp(null)}>
+          <section
+            aria-modal="true"
+            className="help-modal"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="help-modal-header">
+              <h2>{helpContent[activeHelp].title}</h2>
+              <button
+                aria-label="도움말 닫기"
+                className="icon-only secondary"
+                onClick={() => setActiveHelp(null)}
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>{helpContent[activeHelp].body}</p>
+          </section>
+        </div>
+      )}
     </main>
   )
 }

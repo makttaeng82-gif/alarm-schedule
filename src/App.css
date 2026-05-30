@@ -63,8 +63,9 @@
 
 .topbar {
   align-items: center;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   margin: 0 auto 24px;
   max-width: 1440px;
 }
@@ -145,21 +146,24 @@
 }
 
 .clock {
-  background: var(--clock-bg);
-  border-radius: 8px;
-  color: var(--clock-text);
-  font-size: 34px;
+  color: #38bdf8;
+  font-size: 42px;
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  min-width: 184px;
-  padding: 14px 18px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  min-width: 230px;
   text-align: center;
+  text-shadow:
+    0 0 10px rgba(56, 189, 248, 0.7),
+    0 0 26px rgba(37, 99, 235, 0.45);
 }
 
 .topbar-controls {
   align-items: center;
   display: flex;
   gap: 12px;
+  justify-content: flex-end;
 }
 
 .theme-toggle {
@@ -167,10 +171,19 @@
   color: var(--button-muted-text);
 }
 
+.app.light .clock {
+  color: #0ea5e9;
+  text-shadow:
+    0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 10px rgba(14, 165, 233, 0.62),
+    0 0 24px rgba(6, 182, 212, 0.36),
+    0 0 42px rgba(37, 99, 235, 0.22);
+}
+
 .workspace {
   display: grid;
   gap: 20px;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
   margin: 0 auto 20px;
   max-width: 1440px;
 }
@@ -184,10 +197,52 @@
 }
 
 .editor {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 16px;
+  grid-template-columns: 1fr;
   padding: 20px;
+}
+
+.editor .section-title,
+.editor .title-days-row {
+  grid-column: 1 / -1;
+}
+
+.editor .actions {
+  align-self: end;
+}
+
+.time-volume-row,
+.alarm-action-row {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+}
+
+.time-volume-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 2fr);
+}
+
+.memo-settings-row {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 2fr);
+}
+
+.memo-settings-row > label {
+  grid-column: 1 / span 2;
+}
+
+.settings-stack {
+  align-content: start;
+  display: grid;
+  gap: 14px;
+  grid-column: 3;
+}
+
+.alarm-action-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 2fr);
 }
 
 .panel {
@@ -206,13 +261,31 @@
   margin: 0;
 }
 
+.help-button {
+  background: transparent;
+  color: var(--text-muted);
+  min-height: 28px;
+  min-width: 28px;
+  padding: 4px;
+}
+
+.help-button:hover {
+  color: var(--heading);
+}
+
 label,
 .label-text {
+  align-items: center;
   color: var(--text);
-  display: grid;
+  display: inline-flex;
   font-size: 13px;
   font-weight: 700;
   gap: 7px;
+}
+
+label {
+  align-items: stretch;
+  display: grid;
 }
 
 input,
@@ -231,17 +304,32 @@ input[type='time'] {
   color-scheme: light;
 }
 
+input[type='range'] {
+  padding: 0;
+  width: 100%;
+}
+
 .time-control {
   display: grid;
   position: relative;
 }
 
-.time-control input[type='time'] {
+.time-trigger {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 7px;
+  color: var(--heading);
+  font: inherit;
+  font-weight: 800;
+  min-height: 42px;
+  padding: 9px 40px 9px 11px;
+  position: relative;
+  text-align: left;
   padding-right: 40px;
   width: 100%;
 }
 
-.time-control::after {
+.time-trigger::after {
   border: 1.8px solid var(--heading);
   border-radius: 50%;
   content: '';
@@ -254,7 +342,7 @@ input[type='time'] {
   width: 13px;
 }
 
-.time-control::before {
+.time-trigger::before {
   background:
     linear-gradient(var(--heading), var(--heading)) 50% 37% / 1.8px 4px no-repeat,
     linear-gradient(var(--heading), var(--heading)) 62% 56% / 4px 1.8px no-repeat;
@@ -269,18 +357,40 @@ input[type='time'] {
   z-index: 1;
 }
 
-.app.dark input[type='time'] {
-  color-scheme: dark;
+.time-menu {
+  background: #333;
+  border: 1px solid #5f6b7c;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  left: 0;
+  max-width: 170px;
+  min-width: 170px;
+  padding: 4px;
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 20;
 }
 
-input[type='time']::-webkit-calendar-picker-indicator {
-  cursor: pointer;
-  height: 100%;
-  inset: 0;
-  opacity: 0;
-  position: absolute;
-  width: 100%;
-  z-index: 2;
+.time-column {
+  display: grid;
+  max-height: 252px;
+  overflow-y: auto;
+}
+
+.time-option {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #fff;
+  font: inherit;
+  min-height: 28px;
+  padding: 4px 12px;
+}
+
+.time-option:hover,
+.time-option.active {
+  background: #9ecbff;
+  color: #102033;
 }
 
 textarea {
@@ -314,6 +424,30 @@ button {
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.title-days-row {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(260px, 1fr) minmax(420px, 1.7fr);
+}
+
+.title-field,
+.day-field {
+  min-width: 0;
+}
+
+.day-field {
+  display: grid;
+  gap: 7px;
+}
+
+.day-controls {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .day {
@@ -374,7 +508,7 @@ button {
 }
 
 .actions,
-.timer-buttons {
+.actions {
   flex-wrap: wrap;
 }
 
@@ -393,13 +527,66 @@ button {
 }
 
 .quick-timers {
+  align-content: start;
   display: grid;
   gap: 8px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.timer-header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.timer-editor {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+}
+
+.timer-input-label {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.timer-input-label select {
+  min-width: 0;
+}
+
+.timer-input-label span {
+  color: var(--text);
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .timer-buttons {
+  align-content: start;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  max-height: 280px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+  white-space: nowrap;
+}
+
+.timer-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.timer-run {
+  flex: 0 0 148px;
+  overflow: hidden;
+  white-space: nowrap;
+  width: 148px;
 }
 
 .danger {
@@ -413,13 +600,14 @@ button {
 }
 
 .schedule-panel {
+  grid-column: 1 / -1;
   min-width: 0;
 }
 
 .week-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(7, minmax(130px, 1fr));
+  grid-template-columns: repeat(7, minmax(112px, 1fr));
   margin-top: 18px;
   overflow-x: auto;
   padding-bottom: 4px;
@@ -429,8 +617,9 @@ button {
   background: var(--surface-muted);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
+  box-sizing: border-box;
   min-height: 300px;
-  min-width: 130px;
+  min-width: 0;
 }
 
 .day-heading {
@@ -521,7 +710,8 @@ button {
 
 .table-panel {
   margin: 0 auto;
-  max-width: 1400px;
+  max-width: 1440px;
+  width: 100%;
 }
 
 .site-footer {
@@ -547,6 +737,46 @@ button {
   color: var(--text);
   line-height: 1.55;
   margin: 0;
+}
+
+.help-overlay {
+  align-items: center;
+  background: rgba(2, 6, 23, 0.62);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 100;
+}
+
+.help-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  max-width: 440px;
+  padding: 18px;
+  width: min(100%, 440px);
+}
+
+.help-modal-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.help-modal h2 {
+  color: var(--heading);
+  font-size: 18px;
+  margin: 0;
+}
+
+.help-modal p {
+  color: var(--text);
+  line-height: 1.55;
+  margin: 14px 0 0;
 }
 
 .table-toolbar {
@@ -604,12 +834,12 @@ th {
 
   .topbar {
     align-items: stretch;
-    flex-direction: column;
     gap: 14px;
+    grid-template-columns: 1fr;
   }
 
   .topbar-controls {
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .alarm-banner {
@@ -630,10 +860,37 @@ th {
   .workspace {
     grid-template-columns: 1fr;
   }
+
+  .editor {
+    grid-template-columns: 1fr;
+  }
+
+  .title-days-row {
+    grid-template-columns: 1fr;
+  }
+
+  .time-volume-row,
+  .memo-settings-row,
+  .alarm-action-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
+  .editor {
+    grid-template-columns: 1fr;
+  }
+
   .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .day-controls {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .timer-editor {
     grid-template-columns: 1fr;
   }
 
