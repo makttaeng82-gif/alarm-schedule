@@ -781,8 +781,81 @@ button {
 }
 
 .table-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
   justify-content: space-between;
   margin-bottom: 14px;
+}
+
+.backup-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.backup-input {
+  display: none;
+}
+
+.notification-status {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 9px 11px;
+}
+
+.notification-status.granted {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.notification-status.denied {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.notification-status.default,
+.notification-status.unsupported {
+  background: var(--surface-muted);
+}
+
+.notification-hint {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.backup-summary {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.backup-summary div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.backup-summary dt,
+.backup-summary dd {
+  color: var(--text);
+  margin: 0;
+}
+
+.backup-summary dd {
+  color: var(--heading);
+  font-weight: 900;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .table-wrap {

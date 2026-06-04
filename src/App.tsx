@@ -24,7 +24,17 @@ declare global {
 }
 
 type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
-type SoundKey = 'classic' | 'school' | 'soft' | 'digital' | 'urgent' | 'chime' | 'morning' | 'beep'
+type SoundKey =
+  | 'classic'
+  | 'school'
+  | 'soft'
+  | 'digital'
+  | 'urgent'
+  | 'chime'
+  | 'morning'
+  | 'beep'
+  | 'siren'
+  | 'pulse'
 type Theme = 'light' | 'dark'
 
 type Schedule = {
@@ -51,7 +61,16 @@ type QuickTimer = {
   id: string
   minutes: number
 }
-type HelpKey = 'schedule' | 'days' | 'time' | 'alarm' | 'timer'
+type BackupData = {
+  app: 'alarm-schedule'
+  version: 1
+  exportedAt: string
+  schedules: Schedule[]
+  quickTimers: QuickTimer[]
+  theme: Theme
+}
+type NotificationStatus = NotificationPermission | 'unsupported'
+type HelpKey = 'schedule' | 'days' | 'time' | 'alarm' | 'timer' | 'week' | 'list'
 
 const helpContent: Record<HelpKey, { title: string; body: string }> = {
   schedule: {
@@ -74,6 +93,21 @@ const helpContent: Record<HelpKey, { title: string; body: string }> = {
     title: '사용자 설정 타이머',
     body: '요일과 무관하게 현재 시각 기준으로 몇 시간 몇 분 뒤 알람을 바로 추가합니다. 만든 타이머는 수정하거나 삭제할 수 있습니다.',
   },
+  week: {
+    title: '주간표',
+    body: '요일별로 등록된 일정을 한눈에 보는 영역입니다. 일정은 시작 시간이 빠른 순서로 표시됩니다.',
+  },
+  list: {
+    title: '알람 목록',
+    body: '저장된 모든 일정을 표로 보는 영역입니다. 여기서 알람을 켜거나 끄고, 일정을 수정하거나 삭제할 수 있습니다.',
+  },
+}
+
+const notificationLabels: Record<NotificationStatus, string> = {
+  granted: '허용됨',
+  denied: '차단됨',
+  default: '미설정',
+  unsupported: '지원 안 함',
 }
 
 // 브라우저 저장소 키입니다. 새로고침해도 일정과 테마가 유지됩니다.
@@ -100,6 +134,8 @@ const sounds: Array<{ key: SoundKey; label: string }> = [
   { key: 'chime', label: '차임' },
   { key: 'morning', label: '아침' },
   { key: 'beep', label: '비프' },
+  { key: 'siren', label: '사이렌' },
+  { key: 'pulse', label: '펄스' },
 ]
 
 const colors = [
@@ -126,6 +162,8 @@ const defaultQuickTimers: QuickTimer[] = [
 
 const timerHourOptions = Array.from({ length: 12 }, (_, index) => index)
 const timerMinuteOptions = Array.from({ length: 60 }, (_, index) => index)
+const dayKeys = days.map((day) => day.key)
+const soundKeys = sounds.map((sound) => sound.key)
 
 const getEmptyForm = (): ScheduleForm => ({
   title: '',
@@ -134,7 +172,7 @@ const getEmptyForm = (): ScheduleForm => ({
   endTime: '10:00',
   alarmBeforeMinutes: 1,
   sound: 'classic',
-  volume: 70,
+  volume: 85,
   color: colors[0],
   enabled: true,
   memo: '',
@@ -221,6 +259,50 @@ const formatTimerLabel = (minutes: number) => {
   return remainingMinutes === 0
     ? `${hours}시간 후`
     : `${hours}시간 ${remainingMinutes}분 후`
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string'
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
+const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+
+const isSchedule = (value: unknown): value is Schedule => {
+  if (!value || typeof value !== 'object') return false
+  const schedule = value as Schedule
+  return (
+    isString(schedule.id) &&
+    isString(schedule.title) &&
+    Array.isArray(schedule.days) &&
+    schedule.days.every((day) => dayKeys.includes(day)) &&
+    isString(schedule.startTime) &&
+    isString(schedule.endTime) &&
+    isNumber(schedule.alarmBeforeMinutes) &&
+    soundKeys.includes(schedule.sound) &&
+    isNumber(schedule.volume) &&
+    isString(schedule.color) &&
+    isBoolean(schedule.enabled) &&
+    isString(schedule.memo)
+  )
+}
+
+const isQuickTimer = (value: unknown): value is QuickTimer => {
+  if (!value || typeof value !== 'object') return false
+  const timer = value as QuickTimer
+  return isString(timer.id) && isNumber(timer.minutes) && timer.minutes > 0
+}
+
+const isBackupData = (value: unknown): value is BackupData => {
+  if (!value || typeof value !== 'object') return false
+  const backup = value as BackupData
+  return (
+    backup.app === 'alarm-schedule' &&
+    backup.version === 1 &&
+    isString(backup.exportedAt) &&
+    Array.isArray(backup.schedules) &&
+    backup.schedules.every(isSchedule) &&
+    Array.isArray(backup.quickTimers) &&
+    backup.quickTimers.every(isQuickTimer) &&
+    (backup.theme === 'light' || backup.theme === 'dark')
+  )
 }
 
 const hours = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'))
@@ -315,7 +397,7 @@ const getInitialSchedules = (): Schedule[] => {
         endTime: '10:00',
         alarmBeforeMinutes: 1,
         sound: 'school',
-        volume: 70,
+        volume: 85,
         color: colors[0],
         enabled: true,
         memo: '예시',
@@ -367,13 +449,15 @@ function App() {
   )
   const [activeAlarm, setActiveAlarm] = useState<ActiveAlarm | null>(null)
   const [manualPreAlert, setManualPreAlert] = useState(false)
-  const [notificationStatus, setNotificationStatus] = useState(
+  const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
+  const [pendingBackup, setPendingBackup] = useState<BackupData | null>(null)
   const triggeredRef = useRef<Set<string>>(new Set())
   const audioContextRef = useRef<AudioContext | null>(null)
   const alarmLoopRef = useRef<number | null>(null)
   const testAlarmTimeoutRef = useRef<number | null>(null)
+  const backupInputRef = useRef<HTMLInputElement | null>(null)
 
   // 브라우저는 사용자가 한번 클릭/입력하기 전 자동 재생을 막을 수 있습니다.
   // 그래서 클릭/키 입력 시 AudioContext를 미리 만들어 둡니다.
@@ -470,15 +554,17 @@ function App() {
     if (!context) return
     void context.resume()
 
-    const soundMap: Record<SoundKey, { pattern: number[]; type: OscillatorType; gap: number }> = {
-      classic: { pattern: [988, 740, 988, 740, 1175], type: 'square', gap: 0.16 },
-      school: { pattern: [1047, 784, 659, 784, 1047, 784], type: 'triangle', gap: 0.22 },
-      soft: { pattern: [659, 784, 988, 1319, 988], type: 'sine', gap: 0.24 },
-      digital: { pattern: [1568, 1175, 1568, 1175, 1760, 1568], type: 'square', gap: 0.11 },
-      urgent: { pattern: [1397, 932, 1397, 932, 1397, 932, 1568], type: 'sawtooth', gap: 0.1 },
-      chime: { pattern: [523, 784, 1047, 1568, 1047, 784], type: 'sine', gap: 0.28 },
-      morning: { pattern: [587, 740, 880, 1175, 1480, 1175], type: 'triangle', gap: 0.2 },
-      beep: { pattern: [1800, 1800, 1200, 1800, 1800, 1200], type: 'square', gap: 0.09 },
+    const soundMap: Record<SoundKey, { pattern: number[]; type: OscillatorType; gap: number; duration: number }> = {
+      classic: { pattern: [988, 740, 988, 740, 1175, 988], type: 'square', gap: 0.14, duration: 0.22 },
+      school: { pattern: [1047, 784, 659, 784, 1047, 784], type: 'triangle', gap: 0.2, duration: 0.28 },
+      soft: { pattern: [659, 784, 988, 1319, 988, 784], type: 'sine', gap: 0.22, duration: 0.3 },
+      digital: { pattern: [1568, 1175, 1568, 1175, 1760, 1568, 1760], type: 'square', gap: 0.09, duration: 0.18 },
+      urgent: { pattern: [1397, 932, 1397, 932, 1397, 932, 1568, 932], type: 'sawtooth', gap: 0.08, duration: 0.18 },
+      chime: { pattern: [523, 784, 1047, 1568, 1047, 784], type: 'sine', gap: 0.24, duration: 0.34 },
+      morning: { pattern: [587, 740, 880, 1175, 1480, 1175, 880], type: 'triangle', gap: 0.18, duration: 0.25 },
+      beep: { pattern: [1800, 1800, 1200, 1800, 1800, 1200, 2100], type: 'square', gap: 0.07, duration: 0.16 },
+      siren: { pattern: [700, 930, 1240, 930, 700, 930, 1240, 1568], type: 'sawtooth', gap: 0.11, duration: 0.2 },
+      pulse: { pattern: [440, 1760, 440, 1760, 440, 1760, 2200], type: 'square', gap: 0.08, duration: 0.16 },
     }
 
     const selectedSound = soundMap[sound]
@@ -493,11 +579,11 @@ function App() {
       oscillator.frequency.value = frequency
       oscillator.type = selectedSound.type
       gain.gain.setValueAtTime(0.0001, startTime)
-      gain.gain.exponentialRampToValueAtTime(0.25 * safeVolume, startTime + 0.03)
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.24)
+      gain.gain.exponentialRampToValueAtTime(0.55 * safeVolume, startTime + 0.025)
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + selectedSound.duration)
       oscillator.connect(gain).connect(context.destination)
       oscillator.start(startTime)
-      oscillator.stop(startTime + 0.26)
+      oscillator.stop(startTime + selectedSound.duration + 0.02)
     })
   }, [getAudioContext])
 
@@ -594,6 +680,54 @@ function App() {
     if (typeof Notification === 'undefined') return
     const permission = await Notification.requestPermission()
     setNotificationStatus(permission)
+  }
+
+  const downloadBackup = () => {
+    const backup: BackupData = {
+      app: 'alarm-schedule',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      schedules,
+      quickTimers,
+      theme,
+    }
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const date = new Date().toISOString().slice(0, 10)
+    link.href = url
+    link.download = `alarm-schedule-backup-${date}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const uploadBackup = async (file: File) => {
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text) as unknown
+
+      if (!isBackupData(parsed)) {
+        window.alert('백업 파일 형식이 올바르지 않습니다.')
+        return
+      }
+
+      setPendingBackup(parsed)
+    } catch {
+      window.alert('백업 파일을 읽을 수 없습니다.')
+    } finally {
+      if (backupInputRef.current) backupInputRef.current.value = ''
+    }
+  }
+
+  const restorePendingBackup = () => {
+    if (!pendingBackup) return
+
+    setSchedules(pendingBackup.schedules)
+    setQuickTimers(pendingBackup.quickTimers)
+    setTheme(pendingBackup.theme)
+    resetForm()
+    cancelQuickTimerEdit()
+    setPendingBackup(null)
   }
 
   const resetForm = () => {
@@ -1063,6 +1197,7 @@ function App() {
           <div className="section-title">
             <BellRing size={20} />
             <h2>주간표</h2>
+            <HelpButton target="week" onOpen={setActiveHelp} />
           </div>
 
           <div className="week-grid">
@@ -1119,10 +1254,41 @@ function App() {
           <div className="section-title">
             <Bell size={20} />
             <h2>알람 목록</h2>
+            <HelpButton target="list" onOpen={setActiveHelp} />
           </div>
-          <button className="secondary" onClick={requestNotifications} type="button">
-            브라우저 알림: {notificationStatus === 'granted' ? '허용' : '요청'}
-          </button>
+          <div className="backup-actions">
+            <button className="secondary" onClick={downloadBackup} type="button">
+              백업 다운로드
+            </button>
+            <button
+              className="secondary"
+              onClick={() => backupInputRef.current?.click()}
+              type="button"
+            >
+              백업 불러오기
+            </button>
+            <input
+              accept="application/json"
+              className="backup-input"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) void uploadBackup(file)
+              }}
+              ref={backupInputRef}
+              type="file"
+            />
+            <span className={`notification-status ${notificationStatus}`}>
+              브라우저 알림: {notificationLabels[notificationStatus]}
+            </span>
+            {notificationStatus === 'default' && (
+              <button className="secondary" onClick={requestNotifications} type="button">
+                브라우저 알림 켜기
+              </button>
+            )}
+            {notificationStatus === 'denied' && (
+              <span className="notification-hint">브라우저 설정에서 변경 필요</span>
+            )}
+          </div>
         </div>
 
         <div className="table-wrap">
@@ -1199,11 +1365,11 @@ function App() {
       <footer className="site-footer">
         <div>
           <h2>이용사항</h2>
-          <p>일정은 이 브라우저의 localStorage에 저장됩니다. 다른 기기와 자동 동기화되지 않습니다.</p>
+          <p>일정은 지금 사용하는 브라우저에 저장됩니다. 다른 기기에서는 자동으로 보이지 않습니다. 필요하면 백업 파일을 내려받아 보관하세요.</p>
         </div>
         <div>
           <h2>주의사항</h2>
-          <p>알람은 브라우저가 열려 있을 때 가장 안정적으로 동작합니다. 브라우저 종료, 절전, OS 알림 제한 상태에서는 보장되지 않습니다.</p>
+          <p>알람은 이 페이지가 열려 있을 때 가장 잘 울립니다. 브라우저를 닫거나 컴퓨터가 절전 상태이면 알람이 울리지 않을 수 있습니다.</p>
         </div>
       </footer>
 
@@ -1227,6 +1393,55 @@ function App() {
               </button>
             </div>
             <p>{helpContent[activeHelp].body}</p>
+          </section>
+        </div>
+      )}
+
+      {pendingBackup && (
+        <div className="help-overlay" role="presentation" onClick={() => setPendingBackup(null)}>
+          <section
+            aria-modal="true"
+            className="help-modal backup-modal"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="help-modal-header">
+              <h2>백업 불러오기 주의사항</h2>
+              <button
+                aria-label="백업 불러오기 취소"
+                className="icon-only secondary"
+                onClick={() => setPendingBackup(null)}
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>
+              백업을 불러오면 현재 저장된 일정, 사용자 설정 타이머, 테마가 백업 파일 내용으로
+              덮어써집니다. 현재 내용은 되돌릴 수 없습니다.
+            </p>
+            <dl className="backup-summary">
+              <div>
+                <dt>일정</dt>
+                <dd>{pendingBackup.schedules.length}개</dd>
+              </div>
+              <div>
+                <dt>사용자 설정 타이머</dt>
+                <dd>{pendingBackup.quickTimers.length}개</dd>
+              </div>
+              <div>
+                <dt>내보낸 날짜</dt>
+                <dd>{new Date(pendingBackup.exportedAt).toLocaleString()}</dd>
+              </div>
+            </dl>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setPendingBackup(null)} type="button">
+                취소
+              </button>
+              <button className="danger" onClick={restorePendingBackup} type="button">
+                덮어쓰기
+              </button>
+            </div>
           </section>
         </div>
       )}
