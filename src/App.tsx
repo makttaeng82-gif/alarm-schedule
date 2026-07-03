@@ -112,6 +112,14 @@ const isBackupData = (value: unknown): value is BackupData => {
 
 const hours = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'))
 const minutes = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'))
+const defaultFeedbackFormUrl =
+  'https://docs.google.com/forms/d/e/1FAIpQLSfy18TkMly1cXauCMz6PoimxQY1HrjGk6GrUc38yanTZzz6Pg/viewform?usp=dialog'
+const feedbackFormUrl = import.meta.env.VITE_FEEDBACK_FORM_URL?.trim() || defaultFeedbackFormUrl
+
+const hasSameScheduleTime = (first: Schedule, second: Schedule) =>
+  first.startTime === second.startTime &&
+  first.endTime === second.endTime &&
+  first.days.some((day) => second.days.includes(day))
 
 function TimePicker({ value, onChange }: TimePickerProps) {
   const [open, setOpen] = useState(false)
@@ -258,6 +266,7 @@ function App() {
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
   const [pendingBackup, setPendingBackup] = useState<BackupData | null>(null)
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const triggeredRef = useRef<Set<string>>(new Set())
   const audioContextRef = useRef<AudioContext | null>(null)
   const alarmLoopRef = useRef<number | null>(null)
@@ -348,6 +357,19 @@ function App() {
         .map((schedule) => schedule.id),
     )
   }, [schedules, tickMs])
+
+  const sameTimeSchedules = useMemo(() => {
+    const cleanTitle = form.title.trim()
+    if (!editingId && !cleanTitle) return []
+
+    const candidate: Schedule = {
+      ...form,
+      id: editingId ?? 'new-schedule',
+      title: cleanTitle || form.title,
+    }
+
+    return schedules.filter((schedule) => schedule.id !== editingId && hasSameScheduleTime(candidate, schedule))
+  }, [editingId, form, schedules])
 
   const playSound = useCallback((sound: SoundKey, volume: number) => {
     const context = getAudioContext()
@@ -527,6 +549,16 @@ function App() {
     setPendingBackup(null)
   }
 
+  const resetAllData = () => {
+    stopAlarm()
+    setSchedules([])
+    setQuickTimers(defaultQuickTimers)
+    resetForm()
+    cancelQuickTimerEdit()
+    setPendingBackup(null)
+    setResetConfirmOpen(false)
+  }
+
   const resetForm = () => {
     setForm(getEmptyForm())
     setEditingId(null)
@@ -611,22 +643,26 @@ function App() {
     const endDate = new Date(targetDate.getTime() + 30 * 60_000)
     const title = formatTimerLabel(minutes)
 
-    setSchedules((current) => [
-      ...current,
-      {
-        ...getEmptyForm(),
-        id: crypto.randomUUID(),
-        title,
-        days: [getDayKeyFromDate(targetDate)],
-        startTime: formatTimeFromDate(targetDate),
-        endTime: formatTimeFromDate(endDate),
-        alarmBeforeMinutes: 0,
-        sound: form.sound,
-        volume: form.volume,
-        color: form.color,
-        memo: `${nowDate.toLocaleTimeString()} 생성`,
-      },
-    ])
+    const quickSchedule: Schedule = {
+      ...getEmptyForm(),
+      id: crypto.randomUUID(),
+      title,
+      days: [getDayKeyFromDate(targetDate)],
+      startTime: formatTimeFromDate(targetDate),
+      endTime: formatTimeFromDate(endDate),
+      alarmBeforeMinutes: 0,
+      sound: form.sound,
+      volume: form.volume,
+      color: form.color,
+      memo: `${nowDate.toLocaleTimeString()} 생성`,
+    }
+
+    if (schedules.some((schedule) => hasSameScheduleTime(quickSchedule, schedule))) {
+      window.alert('같은 요일과 시간의 일정이 이미 있습니다.')
+      return
+    }
+
+    setSchedules((current) => [...current, quickSchedule])
   }
 
   const submitSchedule = (event: FormEvent<HTMLFormElement>) => {
@@ -641,17 +677,27 @@ function App() {
       return
     }
 
+    const nextSchedule: Schedule = {
+      ...safeForm,
+      id: editingId ?? 'new-schedule',
+      title: cleanTitle,
+    }
+
+    if (
+      schedules.some((schedule) => schedule.id !== editingId && hasSameScheduleTime(nextSchedule, schedule))
+    ) {
+      window.alert('같은 요일과 시간의 일정이 이미 있습니다.')
+      return
+    }
+
     if (editingId) {
       setSchedules((current) =>
         current.map((schedule) =>
-          schedule.id === editingId ? { ...safeForm, id: editingId, title: cleanTitle } : schedule,
+          schedule.id === editingId ? { ...nextSchedule, id: editingId } : schedule,
         ),
       )
     } else {
-      setSchedules((current) => [
-        ...current,
-        { ...safeForm, id: crypto.randomUUID(), title: cleanTitle },
-      ])
+      setSchedules((current) => [...current, { ...nextSchedule, id: crypto.randomUUID() }])
     }
 
     resetForm()
@@ -714,6 +760,15 @@ function App() {
           {now}
         </div>
         <div className="topbar-controls">
+          {feedbackFormUrl ? (
+            <a className="feedback-link" href={feedbackFormUrl} rel="noreferrer" target="_blank">
+              문의
+            </a>
+          ) : (
+            <button className="feedback-link disabled" disabled type="button">
+              문의
+            </button>
+          )}
           <button
             className="theme-toggle"
             onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
@@ -824,6 +879,17 @@ function App() {
               />
             </label>
           </div>
+
+          {sameTimeSchedules.length > 0 && (
+            <div className="same-time-block" role="alert">
+              <strong>동일 시간 등록 불가</strong>
+              <span>
+                {sameTimeSchedules.slice(0, 3).map((schedule) => schedule.title).join(', ')}
+                {sameTimeSchedules.length > 3 ? ` 외 ${sameTimeSchedules.length - 3}개` : ''}
+                과 요일, 시작 시간, 종료 시간이 같습니다.
+              </span>
+            </div>
+          )}
 
           <div className="memo-settings-row">
             <label>
@@ -1095,6 +1161,9 @@ function App() {
             {notificationStatus === 'denied' && (
               <span className="notification-hint">브라우저 설정에서 변경 필요</span>
             )}
+            <button className="danger" onClick={() => setResetConfirmOpen(true)} type="button">
+              전체 초기화
+            </button>
           </div>
         </div>
 
@@ -1247,6 +1316,38 @@ function App() {
               </button>
               <button className="danger" onClick={restorePendingBackup} type="button">
                 덮어쓰기
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {resetConfirmOpen && (
+        <div className="help-overlay" role="presentation" onClick={() => setResetConfirmOpen(false)}>
+          <section
+            aria-modal="true"
+            className="help-modal"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="help-modal-header">
+              <h2>전체 초기화</h2>
+              <button
+                aria-label="전체 초기화 취소"
+                className="icon-only secondary"
+                onClick={() => setResetConfirmOpen(false)}
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>저장된 일정과 사용자 설정 타이머가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setResetConfirmOpen(false)} type="button">
+                취소
+              </button>
+              <button className="danger" onClick={resetAllData} type="button">
+                초기화
               </button>
             </div>
           </section>

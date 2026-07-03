@@ -79,6 +79,30 @@
 - Added Cloudflare Pages deployment settings to `README.md`.
 - Verified local GitHub Pages-style build and Cloudflare Pages-style build.
 - Checked Wrangler auth with `npx.cmd --yes wrangler@latest whoami`; local machine is not authenticated with Cloudflare yet.
+
+### Public Release Feature Prep
+
+- Added a top feedback button connected through `VITE_FEEDBACK_FORM_URL`.
+- Added `.env.example` with the feedback form environment variable.
+- Added `.env.production` with the Google Form response URL.
+- Updated the contact button label to `문의`.
+- Replaced the Google Form URL with the `/d/e/.../viewform?usp=dialog` response URL.
+- Added a built-in contact form fallback URL so the `문의` button also works in local development.
+- Added a visible alarm reliability and browser-only storage notice.
+- Added a stronger backup download call-to-action.
+- Added full reset with confirmation modal.
+- Added schedule overlap warning while editing or creating a schedule.
+- Removed the top alarm notice after review.
+- Changed full reset to keep the current theme instead of forcing dark mode.
+- Changed schedule overlap messaging from a warning to a neutral note and hid it while a new schedule has no title.
+- Blocked schedule saves when another schedule has the same day, start time, and end time.
+- Applied the same duplicate-time block to schedules created from user quick timers.
+- Removed partial-overlap notices; only exact same day/start/end time is treated as a problem.
+- Moved the quick-timer duplicate alert outside the React state updater to prevent duplicate alerts in StrictMode.
+- Verification after change:
+  - `npm.cmd run lint`: passed.
+  - `npm.cmd run test`: passed, 4 tests.
+  - `CF_PAGES=1 npm.cmd run build`: passed.
 - Files changed:
   - `src/App.tsx`
   - `src/App.css`
