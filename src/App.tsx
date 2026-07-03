@@ -16,249 +16,54 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
+import {
+  colors,
+  dayKeys,
+  days,
+  defaultQuickTimers,
+  helpContent,
+  notificationLabels,
+  QUICK_TIMERS_KEY,
+  soundKeys,
+  sounds,
+  STORAGE_KEY,
+  THEME_KEY,
+  timerHourOptions,
+  timerMinuteOptions,
+} from './scheduleData'
+import {
+  formatAlarm,
+  formatDuration,
+  formatTimeFromDate,
+  formatTimerLabel,
+  getCurrentClock,
+  getDayKeyFromDate,
+  getDueAlarmOccurrence,
+  getEmptyForm,
+  getNextAlarmOccurrence,
+  getNextEndTime,
+  getStartTimeChange,
+  getTodayKey,
+  toMinutes,
+} from './timeUtils'
+import type {
+  ActiveAlarm,
+  BackupData,
+  DayKey,
+  HelpKey,
+  NotificationStatus,
+  QuickTimer,
+  Schedule,
+  ScheduleForm,
+  SoundKey,
+  Theme,
+  TimePickerProps,
+} from './types'
 
 declare global {
   interface Window {
     webkitAudioContext?: typeof AudioContext
   }
-}
-
-type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
-type SoundKey =
-  | 'classic'
-  | 'school'
-  | 'soft'
-  | 'digital'
-  | 'urgent'
-  | 'chime'
-  | 'morning'
-  | 'beep'
-  | 'siren'
-  | 'pulse'
-type Theme = 'light' | 'dark'
-
-type Schedule = {
-  id: string
-  title: string
-  days: DayKey[]
-  startTime: string
-  endTime: string
-  alarmBeforeMinutes: number
-  sound: SoundKey
-  volume: number
-  color: string
-  enabled: boolean
-  memo: string
-}
-
-type ScheduleForm = Omit<Schedule, 'id'>
-type ActiveAlarm = Pick<Schedule, 'id' | 'title' | 'startTime' | 'alarmBeforeMinutes' | 'color'>
-type TimePickerProps = {
-  value: string
-  onChange: (time: string) => void
-}
-type QuickTimer = {
-  id: string
-  minutes: number
-}
-type BackupData = {
-  app: 'alarm-schedule'
-  version: 1
-  exportedAt: string
-  schedules: Schedule[]
-  quickTimers: QuickTimer[]
-  theme: Theme
-}
-type NotificationStatus = NotificationPermission | 'unsupported'
-type HelpKey = 'schedule' | 'days' | 'time' | 'alarm' | 'timer' | 'week' | 'list'
-
-const helpContent: Record<HelpKey, { title: string; body: string }> = {
-  schedule: {
-    title: '일정 기본 정보',
-    body: '일정명, 메모, 색상은 목록과 주간표에서 일정을 구분하기 위한 정보입니다. 알람 사용을 끄면 해당 일정은 저장만 되고 울리지 않습니다.',
-  },
-  days: {
-    title: '요일 선택',
-    body: '선택한 요일에만 일정 알람이 동작합니다. 오늘 버튼은 현재 날짜의 요일만 빠르게 선택합니다.',
-  },
-  time: {
-    title: '시작/종료/볼륨',
-    body: '시작 시간을 바꾸면 종료 시간은 자동으로 1시간 뒤로 맞춰집니다. 볼륨은 알람 소리 크기에 적용됩니다.',
-  },
-  alarm: {
-    title: '알람 설정',
-    body: '알람 전 값은 시작 시간보다 몇 분 먼저 울릴지 정합니다. 소리는 듣기 버튼으로 미리 확인할 수 있습니다.',
-  },
-  timer: {
-    title: '사용자 설정 타이머',
-    body: '요일과 무관하게 현재 시각 기준으로 몇 시간 몇 분 뒤 알람을 바로 추가합니다. 만든 타이머는 수정하거나 삭제할 수 있습니다.',
-  },
-  week: {
-    title: '주간표',
-    body: '요일별로 등록된 일정을 한눈에 보는 영역입니다. 일정은 시작 시간이 빠른 순서로 표시됩니다.',
-  },
-  list: {
-    title: '알람 목록',
-    body: '저장된 모든 일정을 표로 보는 영역입니다. 여기서 알람을 켜거나 끄고, 일정을 수정하거나 삭제할 수 있습니다.',
-  },
-}
-
-const notificationLabels: Record<NotificationStatus, string> = {
-  granted: '허용됨',
-  denied: '차단됨',
-  default: '미설정',
-  unsupported: '지원 안 함',
-}
-
-// 브라우저 저장소 키입니다. 새로고침해도 일정과 테마가 유지됩니다.
-const STORAGE_KEY = 'alarm-schedule-items'
-const THEME_KEY = 'alarm-schedule-theme'
-const QUICK_TIMERS_KEY = 'alarm-schedule-quick-timers'
-
-const days: Array<{ key: DayKey; label: string }> = [
-  { key: 'mon', label: '월' },
-  { key: 'tue', label: '화' },
-  { key: 'wed', label: '수' },
-  { key: 'thu', label: '목' },
-  { key: 'fri', label: '금' },
-  { key: 'sat', label: '토' },
-  { key: 'sun', label: '일' },
-]
-
-const sounds: Array<{ key: SoundKey; label: string }> = [
-  { key: 'classic', label: '기본' },
-  { key: 'school', label: '학교종' },
-  { key: 'soft', label: '부드럽게' },
-  { key: 'digital', label: '디지털' },
-  { key: 'urgent', label: '긴급' },
-  { key: 'chime', label: '차임' },
-  { key: 'morning', label: '아침' },
-  { key: 'beep', label: '비프' },
-  { key: 'siren', label: '사이렌' },
-  { key: 'pulse', label: '펄스' },
-]
-
-const colors = [
-  '#dc2626',
-  '#ea580c',
-  '#f59e0b',
-  '#eab308',
-  '#22c55e',
-  '#059669',
-  '#14b8a6',
-  '#0891b2',
-  '#2563eb',
-  '#4f46e5',
-  '#7c3aed',
-  '#db2777',
-]
-
-const defaultQuickTimers: QuickTimer[] = [
-  { id: 'quick-30', minutes: 30 },
-  { id: 'quick-60', minutes: 60 },
-  { id: 'quick-120', minutes: 120 },
-  { id: 'quick-180', minutes: 180 },
-]
-
-const timerHourOptions = Array.from({ length: 12 }, (_, index) => index)
-const timerMinuteOptions = Array.from({ length: 60 }, (_, index) => index)
-const dayKeys = days.map((day) => day.key)
-const soundKeys = sounds.map((sound) => sound.key)
-
-const getEmptyForm = (): ScheduleForm => ({
-  title: '',
-  days: [getTodayKey()],
-  startTime: '09:00',
-  endTime: '10:00',
-  alarmBeforeMinutes: 1,
-  sound: 'classic',
-  volume: 85,
-  color: colors[0],
-  enabled: true,
-  memo: '',
-})
-
-const toMinutes = (time: string) => {
-  const [hour, minute] = time.split(':').map(Number)
-  return hour * 60 + minute
-}
-
-const toTimeString = (totalMinutes: number) => {
-  const normalizedMinutes = (totalMinutes + 1440) % 1440
-  const hour = Math.floor(normalizedMinutes / 60)
-  const minute = normalizedMinutes % 60
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-}
-
-const getNextEndTime = (startTime: string) => toTimeString(toMinutes(startTime) + 60)
-
-// 시작 시간이 바뀌면 종료 시간을 항상 시작 + 1시간으로 맞춥니다.
-// 예: 00:04 시작 -> 01:04 종료, 23:30 시작 -> 00:30 종료.
-const getStartTimeChange = (startTime: string) => ({
-  startTime,
-  endTime: getNextEndTime(startTime),
-})
-
-const formatAlarm = (time: string, before: number) => {
-  const total = (toMinutes(time) - before + 1440) % 1440
-  const hour = Math.floor(total / 60)
-  const minute = total % 60
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-}
-
-// 일정의 "알람이 울릴 실제 날짜/시간"을 오늘 날짜 기준 Date로 바꿉니다.
-const getAlarmDate = (schedule: Schedule) => {
-  const [hour, minute] = formatAlarm(schedule.startTime, schedule.alarmBeforeMinutes)
-    .split(':')
-    .map(Number)
-  const alarmDate = new Date()
-  alarmDate.setHours(hour, minute, 0, 0)
-  return alarmDate
-}
-
-function getTodayKey() {
-  const keyByDay: DayKey[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-  return keyByDay[new Date().getDay()]
-}
-
-const getDayKeyFromDate = (date: Date) => {
-  const keyByDay: DayKey[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-  return keyByDay[date.getDay()]
-}
-
-const getCurrentClock = () => {
-  const now = new Date()
-  return [
-    String(now.getHours()).padStart(2, '0'),
-    String(now.getMinutes()).padStart(2, '0'),
-    String(now.getSeconds()).padStart(2, '0'),
-  ].join(':')
-}
-
-const formatDuration = (milliseconds: number) => {
-  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000))
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-
-  if (hours > 0) {
-    return `${hours}시간 ${minutes}분 ${seconds}초`
-  }
-
-  return `${minutes}분 ${seconds}초`
-}
-
-const formatTimeFromDate = (date: Date) =>
-  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-
-const formatTimerLabel = (minutes: number) => {
-  if (minutes < 60) return `${minutes}분 후`
-
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return remainingMinutes === 0
-    ? `${hours}시간 후`
-    : `${hours}시간 ${remainingMinutes}분 후`
 }
 
 const isString = (value: unknown): value is string => typeof value === 'string'
@@ -514,21 +319,16 @@ function App() {
       .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))
   }, [schedules])
 
-  // 오늘 남은 알람 중 가장 빨리 울릴 알람입니다. 없으면 null이라 화면에 표시하지 않습니다.
+  // 남은 알람 중 가장 빨리 울릴 알람입니다. 자정 전 알람도 실제 발생 날짜 기준으로 계산합니다.
   const nextTodayAlarm = useMemo(() => {
     if (tickMs === 0) return null
 
-    const currentDay = getTodayKey()
-
     return (
       schedules
-        .filter((schedule) => schedule.enabled && schedule.days.includes(currentDay))
-        .map((schedule) => ({
-          schedule,
-          alarmTime: getAlarmDate(schedule).getTime(),
-        }))
-        .filter((item) => item.alarmTime > tickMs)
-        .sort((a, b) => a.alarmTime - b.alarmTime)[0] ?? null
+        .filter((schedule) => schedule.enabled)
+        .map((schedule) => getNextAlarmOccurrence(schedule, new Date(tickMs)))
+        .filter((item) => item !== null)
+        .sort((a, b) => a.alarmDate.getTime() - b.alarmDate.getTime())[0] ?? null
     )
   }, [schedules, tickMs])
 
@@ -536,13 +336,13 @@ function App() {
   const alertingScheduleIds = useMemo(() => {
     if (tickMs === 0) return new Set<string>()
 
-    const currentDay = getTodayKey()
-
     return new Set(
       schedules
-        .filter((schedule) => schedule.enabled && schedule.days.includes(currentDay))
+        .filter((schedule) => schedule.enabled)
         .filter((schedule) => {
-          const diff = getAlarmDate(schedule).getTime() - tickMs
+          const nextAlarm = getNextAlarmOccurrence(schedule, new Date(tickMs))
+          if (!nextAlarm) return false
+          const diff = nextAlarm.alarmDate.getTime() - tickMs
           return diff > 0 && diff <= 10_000
         })
         .map((schedule) => schedule.id),
@@ -651,20 +451,17 @@ function App() {
 
   useEffect(() => {
     const alarmTimer = window.setInterval(() => {
-      const currentDay = getTodayKey()
-      const currentTime = Date.now()
-      const currentDate = new Date().toDateString()
+      const currentDate = new Date()
 
       // 실제 시각 기준으로 검사해 10초 전 강조와 알람 시작을 맞춘다.
       schedules.forEach((schedule) => {
-        const alarmTime = getAlarmDate(schedule).getTime()
-        const triggerKey = `${schedule.id}-${currentDate}-${alarmTime}`
+        const occurrence = getDueAlarmOccurrence(schedule, currentDate)
+        if (!occurrence) return
+
+        const triggerKey = `${schedule.id}-${occurrence.startDate.toISOString()}-${occurrence.alarmDate.toISOString()}`
 
         if (
           schedule.enabled &&
-          schedule.days.includes(currentDay) &&
-          currentTime >= alarmTime &&
-          currentTime < alarmTime + 60_000 &&
           !triggeredRef.current.has(triggerKey)
         ) {
           triggeredRef.current.add(triggerKey)
@@ -935,7 +732,7 @@ function App() {
           <span>
             {formatAlarm(nextTodayAlarm.schedule.startTime, nextTodayAlarm.schedule.alarmBeforeMinutes)}
           </span>
-          <b>{formatDuration(nextTodayAlarm.alarmTime - tickMs)} 남음</b>
+          <b>{formatDuration(nextTodayAlarm.alarmDate.getTime() - tickMs)} 남음</b>
         </section>
       )}
 
@@ -955,6 +752,11 @@ function App() {
       )}
 
       <section className="workspace">
+        <aside className="ad-slot ad-slot-editor-top" aria-label="광고">
+          <span>광고</span>
+          <strong>728 x 90</strong>
+        </aside>
+
         <form className="editor" onSubmit={submitSchedule}>
           <div className="section-title">
             <CalendarDays size={20} />
@@ -1248,6 +1050,11 @@ function App() {
         </section>
 
       </section>
+
+      <aside className="ad-slot" aria-label="광고">
+        <span>광고</span>
+        <strong>728 x 90</strong>
+      </aside>
 
       <section className="panel table-panel">
         <div className="table-toolbar">

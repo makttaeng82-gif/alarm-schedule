@@ -15,6 +15,19 @@ npm run dev
 http://127.0.0.1:5173
 ```
 
+## Cloudflare Pages 배포
+
+Cloudflare Pages 설정값:
+
+```text
+Framework preset: React
+Production branch: main
+Build command: npm run build
+Build output directory: dist
+```
+
+Cloudflare Pages는 빌드 시 `CF_PAGES=1` 환경 변수를 자동으로 주입합니다. 이 프로젝트는 해당 값이 있으면 Vite `base`를 `/`로 사용합니다.
+
 ## 기능
 
 - 요일, 시작 시간, 종료 시간, 일정명 직접 설정

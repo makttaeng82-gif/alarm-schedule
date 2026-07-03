@@ -715,6 +715,41 @@ button {
   width: 100%;
 }
 
+.ad-slot {
+  align-items: center;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  display: none;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 auto 20px;
+  max-width: 1440px;
+  min-height: 90px;
+  padding: 14px;
+  width: 100%;
+}
+
+.ad-slot span {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.ad-slot strong {
+  color: var(--heading);
+  font-size: 18px;
+}
+
+.ad-slot-editor-top {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
 .site-footer {
   background: var(--surface);
   border: 1px solid var(--border);
