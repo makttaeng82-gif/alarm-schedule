@@ -88,7 +88,13 @@
 - Updated the contact button label to `문의`.
 - Replaced the Google Form URL with the `/d/e/.../viewform?usp=dialog` response URL.
 - Added a built-in contact form fallback URL so the `문의` button also works in local development.
+- Ensured the `문의` button stays enabled locally and in production.
 - Added a visible alarm reliability and browser-only storage notice.
+
+### Naver Search Advisor
+
+- Added Naver site verification meta tag to `index.html`.
+- Verified the tag is present in `dist/index.html` after Cloudflare Pages-style build.
 - Added a stronger backup download call-to-action.
 - Added full reset with confirmation modal.
 - Added schedule overlap warning while editing or creating a schedule.
