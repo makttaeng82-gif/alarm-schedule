@@ -95,6 +95,10 @@
 
 - Added Naver site verification meta tag to `index.html`.
 - Verified the tag is present in `dist/index.html` after Cloudflare Pages-style build.
+- Added title/description/canonical/Open Graph/Twitter metadata based on Naver content markup guidance.
+- Added `public/robots.txt` with full crawl allow and sitemap location.
+- Added `public/sitemap.xml` for the deployed root page.
+- Added `public/og-image.png` from the existing app image for social/search thumbnails.
 - Added a stronger backup download call-to-action.
 - Added full reset with confirmation modal.
 - Added schedule overlap warning while editing or creating a schedule.
