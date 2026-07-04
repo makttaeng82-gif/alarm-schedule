@@ -219,14 +219,20 @@ const getInitialSchedules = (): Schedule[] => {
   }
 
   try {
-    const parsed = JSON.parse(saved) as Schedule[]
+    const parsed = JSON.parse(saved) as unknown[]
     // Older saved schedules did not have volume, so keep them usable.
-    return Array.isArray(parsed)
-      ? parsed.map((schedule) => ({
-          ...schedule,
-          volume: typeof schedule.volume === 'number' ? schedule.volume : 70,
-        }))
-      : []
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .map((schedule) =>
+        schedule && typeof schedule === 'object'
+          ? {
+              ...schedule,
+              volume: typeof (schedule as Schedule).volume === 'number' ? (schedule as Schedule).volume : 70,
+            }
+          : schedule,
+      )
+      .filter(isSchedule)
   } catch {
     return []
   }
@@ -237,9 +243,9 @@ const getInitialQuickTimers = (): QuickTimer[] => {
   if (!saved) return defaultQuickTimers
 
   try {
-    const parsed = JSON.parse(saved) as QuickTimer[]
+    const parsed = JSON.parse(saved) as unknown[]
     return Array.isArray(parsed) && parsed.length > 0
-      ? parsed.filter((timer) => typeof timer.minutes === 'number' && timer.minutes > 0)
+      ? parsed.filter(isQuickTimer)
       : defaultQuickTimers
   } catch {
     return defaultQuickTimers
