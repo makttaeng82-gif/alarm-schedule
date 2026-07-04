@@ -761,7 +761,7 @@ function App() {
         </div>
         <div className="topbar-controls">
           {feedbackFormUrl ? (
-            <a className="feedback-link" href={feedbackFormUrl} rel="noreferrer" target="_blank">
+            <a className="feedback-link" href={feedbackFormUrl} rel="noopener noreferrer" target="_blank">
               문의
             </a>
           ) : (
