@@ -4,6 +4,7 @@ import {
   getDueAlarmOccurrence,
   getNextAlarmOccurrence,
   getStartTimeChange,
+  getQuickTimerTargetDate,
   isScheduleExcludedOnDate,
 } from './timeUtils'
 import type { Schedule } from './types'
@@ -23,6 +24,7 @@ const baseSchedule: Schedule = {
   excludedDates: [],
   excludeHolidays: false,
   oneTimeDate: null,
+  oneTimeAt: null,
 }
 
 const localStamp = (date: Date) =>
@@ -93,5 +95,27 @@ describe('timeUtils', () => {
     const schedule = { ...baseSchedule, oneTimeDate: '2026-07-06' }
     const currentDate = new Date(2026, 6, 13, 0, 0)
     expect(getNextAlarmOccurrence(schedule, currentDate)).toBeNull()
+  })
+
+  it('rounds a quick timer up to the first safe whole minute after its duration', () => {
+    const now = new Date(2026, 6, 5, 12, 0, 20, 500)
+    expect(localStamp(getQuickTimerTargetDate(now, 1))).toBe('2026-07-05-12-02-00')
+  })
+
+  it('never creates a quick timer target in the past', () => {
+    const now = new Date(2026, 6, 5, 23, 59, 59, 999)
+    expect(getQuickTimerTargetDate(now, 1).getTime()).toBeGreaterThan(now.getTime())
+  })
+
+  it('uses the exact timestamp for a one-time timer', () => {
+    const schedule = {
+      ...baseSchedule,
+      days: ['mon'] as Schedule['days'],
+      alarmBeforeMinutes: 0,
+      oneTimeDate: '2026-07-06',
+      oneTimeAt: new Date(2026, 6, 6, 0, 11, 20).toISOString(),
+    }
+    const occurrence = getNextAlarmOccurrence(schedule, new Date(2026, 6, 6, 0, 10, 0))
+    expect(occurrence?.startDate.getSeconds()).toBe(20)
   })
 })

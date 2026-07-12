@@ -21,6 +21,7 @@ export const getEmptyForm = (): ScheduleForm => ({
   excludedDates: [],
   excludeHolidays: false,
   oneTimeDate: null,
+  oneTimeAt: null,
 })
 
 export const toMinutes = (time: string) => {
@@ -83,12 +84,25 @@ export const formatDuration = (milliseconds: number) => {
 export const formatTimeFromDate = (date: Date) =>
   `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 
+export const formatTimeWithSeconds = (date: Date) =>
+  `${formatTimeFromDate(date)}:${String(date.getSeconds()).padStart(2, '0')}`
+
 export const formatTimerLabel = (minutes: number) => {
   if (minutes < 60) return `${minutes}분 후`
 
   const hours = Math.floor(minutes / 60)
   const remainingMinutes = minutes % 60
   return remainingMinutes === 0 ? `${hours}시간 후` : `${hours}시간 ${remainingMinutes}분 후`
+}
+
+// 일정은 분 단위로 저장하므로, 지정 시간 이후 처음 도달하는 분 단위 시각으로 올림합니다.
+export const getQuickTimerTargetDate = (now: Date, minutes: number) => {
+  const target = new Date(now.getTime() + Math.max(1, minutes) * 60_000)
+  if (target.getSeconds() !== 0 || target.getMilliseconds() !== 0) {
+    target.setMinutes(target.getMinutes() + 1)
+  }
+  target.setSeconds(0, 0)
+  return target
 }
 
 const setDateTime = (date: Date, time: string) => {
@@ -135,6 +149,18 @@ export const getAlarmOccurrencesAround = (
   holidayDates: string[] = [],
 ) => {
   const occurrences: AlarmOccurrence[] = []
+
+  if (schedule.oneTimeAt) {
+    const oneTimeStart = new Date(schedule.oneTimeAt)
+    if (Number.isNaN(oneTimeStart.getTime())) return occurrences
+    if (isScheduleExcludedOnDate(schedule, oneTimeStart, holidayDates)) return occurrences
+    if (!schedule.days.includes(getDayKeyFromDate(oneTimeStart))) return occurrences
+    return [{
+      schedule,
+      startDate: oneTimeStart,
+      alarmDate: new Date(oneTimeStart.getTime() - schedule.alarmBeforeMinutes * 60_000),
+    }]
+  }
 
   for (let offset = -dayRange; offset <= dayRange; offset += 1) {
     const candidateDate = addDays(referenceDate, offset)
