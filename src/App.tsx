@@ -506,11 +506,28 @@ function App() {
   }, [editingId, form, holidayDates, schedules])
 
   const playSound = useCallback((sound: SoundKey, volume: number) => {
+    const audioSources: Partial<Record<SoundKey, string>> = {
+      'boss-warning': 'boss-warning.mp3',
+      'red-alert': 'red-alert.mp3',
+      'hyper-beep': 'hyper-beep.mp3',
+      'system-emergency': 'system-emergency.mp3',
+      'clockwork-alarm': 'clockwork-alarm.mp3',
+    }
+    const audioSource = audioSources[sound]
+    const safeVolume = Math.min(Math.max(volume, 0), 100) / 100
+    if (audioSource) {
+      if (safeVolume === 0) return
+      const audio = new Audio(`${import.meta.env.BASE_URL}sounds/${audioSource}`)
+      audio.volume = safeVolume
+      void audio.play().catch(() => undefined)
+      return
+    }
+
     const context = getAudioContext()
     if (!context) return
     void context.resume()
 
-    const soundMap: Record<SoundKey, { pattern: number[]; type: OscillatorType; gap: number; duration: number }> = {
+    const soundMap: Partial<Record<SoundKey, { pattern: number[]; type: OscillatorType; gap: number; duration: number }>> = {
       classic: { pattern: [988, 740, 988, 740, 1175, 988], type: 'square', gap: 0.14, duration: 0.22 },
       school: { pattern: [1047, 784, 659, 784, 1047, 784], type: 'triangle', gap: 0.2, duration: 0.28 },
       soft: { pattern: [659, 784, 988, 1319, 988, 784], type: 'sine', gap: 0.22, duration: 0.3 },
@@ -524,7 +541,7 @@ function App() {
     }
 
     const selectedSound = soundMap[sound]
-    const safeVolume = Math.min(Math.max(volume, 0), 100) / 100
+    if (!selectedSound) return
     if (safeVolume === 0) return
 
     // Web Audio로 외부 음원 없이 알람 샘플을 합성합니다.

@@ -11,6 +11,11 @@ export type SoundKey =
   | 'beep'
   | 'siren'
   | 'pulse'
+  | 'boss-warning'
+  | 'red-alert'
+  | 'hyper-beep'
+  | 'system-emergency'
+  | 'clockwork-alarm'
 
 export type Theme = 'light' | 'dark'
 

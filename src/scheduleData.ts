@@ -64,6 +64,11 @@ export const sounds: Array<{ key: SoundKey; label: string }> = [
   { key: 'beep', label: '비프' },
   { key: 'siren', label: '사이렌' },
   { key: 'pulse', label: '펄스' },
+  { key: 'boss-warning', label: '보스 경고' },
+  { key: 'red-alert', label: '레드 알림' },
+  { key: 'hyper-beep', label: '하이퍼 비프' },
+  { key: 'system-emergency', label: '긴급 알림' },
+  { key: 'clockwork-alarm', label: '태엽 알람' },
 ]
 
 export const colors = [
