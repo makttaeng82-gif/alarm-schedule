@@ -19,7 +19,7 @@ export const helpContent: Record<HelpKey, { title: string; body: string }> = {
   },
   timer: {
     title: '사용자 설정 타이머',
-    body: '요일과 무관하게 현재 시각 기준으로 몇 시간 몇 분 뒤 알람을 바로 추가합니다. 만든 타이머는 수정하거나 삭제할 수 있습니다.',
+    body: '사용자 설정 타이머는 1회성으로 실행 후 자동 삭제되며, 일정 예외 설정과 무관하게 작동합니다. 현재 시각 기준으로 몇 시간 몇 분 뒤 알람을 추가할 수 있습니다.',
   },
   week: {
     title: '주간표',

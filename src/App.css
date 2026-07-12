@@ -569,12 +569,14 @@ button {
 
 .exception-input-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .exception-input-row input {
+  flex: 1 1 150px;
   min-width: 0;
-  width: 100%;
+  width: auto;
 }
 
 .exception-editor small {
@@ -598,6 +600,28 @@ button {
   font-weight: 800;
   gap: 5px;
   padding: 5px 7px 5px 10px;
+}
+
+.exception-date-chip {
+  align-items: flex-start;
+}
+
+.exception-date-chip > span {
+  display: grid;
+  gap: 2px;
+}
+
+.exception-date-chip small {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.82;
+}
+
+.holiday-editor .exception-input-row > strong {
+  align-items: center;
+  display: flex;
+  flex: 1;
 }
 
 .exception-chip button {
@@ -707,12 +731,13 @@ button {
 .timer-buttons {
   align-content: start;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   max-height: 280px;
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
   scrollbar-gutter: stable;
   white-space: nowrap;
 }
@@ -797,6 +822,20 @@ button {
   outline-offset: 2px;
 }
 
+.schedule-item.excluded-today {
+  border-left-style: dashed;
+}
+
+.schedule-exception-label {
+  align-self: start;
+  background: var(--button-muted);
+  border-radius: 999px;
+  color: var(--button-muted-text) !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  padding: 3px 7px;
+}
+
 @keyframes itemFlash {
   50% {
     background: #fef08a;
@@ -833,8 +872,18 @@ button {
   border-bottom: 1px solid var(--border-soft);
   display: grid;
   gap: 10px;
-  grid-template-columns: 12px minmax(120px, 1fr) 70px 90px;
+  grid-template-columns: 12px minmax(120px, 1fr) 70px 90px auto;
   min-height: 42px;
+}
+
+.exception-status {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px 10px;
 }
 
 .dot {
@@ -1179,9 +1228,4 @@ th {
   .site-footer {
     grid-template-columns: 1fr;
   }
-}
-.timer-note {
-  margin: -0.75rem 0 1rem;
-  color: var(--muted);
-  font-size: 0.82rem;
 }

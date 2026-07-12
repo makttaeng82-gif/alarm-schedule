@@ -14,6 +14,11 @@ export type SoundKey =
 
 export type Theme = 'light' | 'dark'
 
+export type ExcludedDate = {
+  date: string
+  reason: string
+}
+
 export type Schedule = {
   id: string
   title: string
@@ -26,7 +31,7 @@ export type Schedule = {
   color: string
   enabled: boolean
   memo: string
-  excludedDates: string[]
+  excludedDates: ExcludedDate[]
   excludeHolidays: boolean
   oneTimeDate: string | null
 }

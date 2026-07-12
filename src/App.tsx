@@ -54,6 +54,7 @@ import type {
   ActiveAlarm,
   BackupData,
   DayKey,
+  ExcludedDate,
   HelpKey,
   NotificationStatus,
   QuickTimer,
@@ -73,6 +74,21 @@ declare global {
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const isExcludedDate = (value: unknown): value is ExcludedDate =>
+  Boolean(
+    value &&
+      typeof value === 'object' &&
+      isString((value as ExcludedDate).date) &&
+      isString((value as ExcludedDate).reason),
+  )
+const normalizeExcludedDates = (value: unknown): ExcludedDate[] =>
+  Array.isArray(value)
+    ? value
+        .map((item) =>
+          isString(item) ? { date: item, reason: '' } : isExcludedDate(item) ? item : null,
+        )
+        .filter((item): item is ExcludedDate => item !== null)
+    : []
 
 const isSchedule = (value: unknown): value is Schedule => {
   if (!value || typeof value !== 'object') return false
@@ -91,7 +107,8 @@ const isSchedule = (value: unknown): value is Schedule => {
     isBoolean(schedule.enabled) &&
     isString(schedule.memo) &&
     (!('excludedDates' in schedule) ||
-      (Array.isArray(schedule.excludedDates) && schedule.excludedDates.every(isString))) &&
+      (Array.isArray(schedule.excludedDates) &&
+        schedule.excludedDates.every((item) => isString(item) || isExcludedDate(item)))) &&
     (!('excludeHolidays' in schedule) || isBoolean(schedule.excludeHolidays))
     && (!('oneTimeDate' in schedule) || schedule.oneTimeDate === null || isString(schedule.oneTimeDate))
   )
@@ -126,6 +143,7 @@ const defaultFeedbackFormUrl =
   'https://docs.google.com/forms/d/e/1FAIpQLSfy18TkMly1cXauCMz6PoimxQY1HrjGk6GrUc38yanTZzz6Pg/viewform'
 const feedbackFormUrl = import.meta.env.VITE_FEEDBACK_FORM_URL?.trim() || defaultFeedbackFormUrl
 const siteBaseUrl = import.meta.env.BASE_URL
+const currentYear = String(new Date().getFullYear())
 
 const hasSameScheduleTime = (first: Schedule, second: Schedule) =>
   first.startTime === second.startTime &&
@@ -141,6 +159,16 @@ const hasSameAlarmOccurrence = (first: Schedule, second: Schedule, holidayDates:
   return getAlarmOccurrencesAround(second, referenceDate, 8, holidayDates).some(({ alarmDate }) =>
     firstAlarmTimes.has(alarmDate.getTime()),
   )
+}
+
+const getTodayExclusionLabel = (schedule: Schedule, holidayDates: string[]) => {
+  const todayKey = formatDateKey(new Date())
+  const exception = schedule.excludedDates.find((item) => item.date === todayKey)
+  const holidayExcluded = schedule.excludeHolidays && holidayDates.includes(todayKey)
+  if (!exception && !holidayExcluded) return ''
+  if (exception?.reason && holidayExcluded) return `오늘 제외 · ${exception.reason} · 공휴일 제외`
+  if (exception?.reason) return `오늘 제외 · ${exception.reason}`
+  return holidayExcluded ? '공휴일 제외' : '오늘 제외'
 }
 
 function TimePicker({ value, onChange }: TimePickerProps) {
@@ -254,9 +282,7 @@ const getInitialSchedules = (): Schedule[] => {
           ? {
               ...schedule,
               volume: typeof (schedule as Schedule).volume === 'number' ? (schedule as Schedule).volume : 70,
-              excludedDates: Array.isArray((schedule as Schedule).excludedDates)
-                ? (schedule as Schedule).excludedDates
-                : [],
+              excludedDates: normalizeExcludedDates((schedule as Schedule).excludedDates),
               excludeHolidays: typeof (schedule as Schedule).excludeHolidays === 'boolean'
                 ? (schedule as Schedule).excludeHolidays
                 : false,
@@ -291,8 +317,8 @@ function App() {
   const [form, setForm] = useState<ScheduleForm>(getEmptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [exceptionDate, setExceptionDate] = useState('')
+  const [exceptionReason, setExceptionReason] = useState('')
   const [holidayDate, setHolidayDate] = useState('')
-  const [holidayYear, setHolidayYear] = useState(String(new Date().getFullYear()))
   const [holidayLoading, setHolidayLoading] = useState(false)
   const [holidayError, setHolidayError] = useState('')
   const [holidayNotice, setHolidayNotice] = useState('')
@@ -303,7 +329,9 @@ function App() {
 
     try {
       const parsed = JSON.parse(saved) as unknown
-      return Array.isArray(parsed) && parsed.every(isString) ? parsed.sort() : []
+      return Array.isArray(parsed) && parsed.every(isString)
+        ? parsed.filter((date) => date.startsWith(`${currentYear}-`)).sort()
+        : []
     } catch {
       return []
     }
@@ -329,6 +357,7 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const alarmLoopRef = useRef<number | null>(null)
   const testAlarmTimeoutRef = useRef<number | null>(null)
+  const oneTimeAlarmIdsRef = useRef<Set<string>>(new Set())
   const backupInputRef = useRef<HTMLInputElement | null>(null)
 
   // 브라우저는 사용자가 한번 클릭/입력하기 전 자동 재생을 막을 수 있습니다.
@@ -497,6 +526,11 @@ function App() {
       window.clearTimeout(testAlarmTimeoutRef.current)
       testAlarmTimeoutRef.current = null
     }
+    const completedOneTimeIds = oneTimeAlarmIdsRef.current
+    if (completedOneTimeIds.size > 0) {
+      setSchedules((current) => current.filter((schedule) => !completedOneTimeIds.has(schedule.id)))
+      oneTimeAlarmIdsRef.current = new Set()
+    }
     setManualPreAlert(false)
     setActiveAlarms([])
   }, [])
@@ -591,14 +625,9 @@ function App() {
         }
       })
 
-      if (dueSchedules.length > 0) {
-        const oneTimeIds = new Set(
-          dueSchedules.filter((schedule) => schedule.oneTimeDate).map((schedule) => schedule.id),
-        )
-        if (oneTimeIds.size > 0) {
-          setSchedules((current) => current.filter((schedule) => !oneTimeIds.has(schedule.id)))
-        }
-      }
+      dueSchedules
+        .filter((schedule) => schedule.oneTimeDate)
+        .forEach((schedule) => oneTimeAlarmIdsRef.current.add(schedule.id))
 
       fireAlarmGroup(dueSchedules)
     }, 1000)
@@ -646,8 +675,9 @@ function App() {
         ...parsed,
         schedules: parsed.schedules.map((schedule) => ({
           ...schedule,
-          excludedDates: Array.isArray(schedule.excludedDates) ? schedule.excludedDates : [],
+          excludedDates: normalizeExcludedDates(schedule.excludedDates),
           excludeHolidays: typeof schedule.excludeHolidays === 'boolean' ? schedule.excludeHolidays : false,
+          oneTimeDate: isString(schedule.oneTimeDate) ? schedule.oneTimeDate : null,
         })),
         holidayDates: parsed.holidayDates ?? [],
       })
@@ -664,7 +694,7 @@ function App() {
     setSchedules(pendingBackup.schedules)
     setQuickTimers(pendingBackup.quickTimers)
     setTheme(pendingBackup.theme)
-    setHolidayDates(pendingBackup.holidayDates ?? [])
+    setHolidayDates((pendingBackup.holidayDates ?? []).filter((date) => date.startsWith(`${currentYear}-`)))
     resetForm()
     cancelQuickTimerEdit()
     setPendingBackup(null)
@@ -685,11 +715,15 @@ function App() {
     setForm(getEmptyForm())
     setEditingId(null)
     setExceptionDate('')
+    setExceptionReason('')
   }
 
   const addExceptionDate = () => {
     if (!exceptionDate) return
-    const nextDates = [...new Set([...form.excludedDates, exceptionDate])].sort()
+    const nextDates = [
+      ...form.excludedDates.filter((item) => item.date !== exceptionDate),
+      { date: exceptionDate, reason: exceptionReason.trim() },
+    ].sort((a, b) => a.date.localeCompare(b.date))
     setForm((current) => ({
       ...current,
       excludedDates: nextDates,
@@ -705,10 +739,15 @@ function App() {
       setActiveAlarms((current) => current.filter((alarm) => alarm.id !== editingId))
     }
     setExceptionDate('')
+    setExceptionReason('')
   }
 
   const addHolidayDate = () => {
     if (!holidayDate) return
+    if (!holidayDate.startsWith(`${currentYear}-`)) {
+      window.alert(`${currentYear}년 공휴일만 등록할 수 있습니다.`)
+      return
+    }
     setHolidayDates((current) => [...new Set([...current, holidayDate])].sort())
     setActiveAlarms((current) =>
       current.filter((alarm) => {
@@ -720,13 +759,11 @@ function App() {
   }
 
   const fetchHolidays = async () => {
-    if (!/^\d{4}$/.test(holidayYear)) return
-
     setHolidayLoading(true)
     setHolidayError('')
     setHolidayNotice('')
     try {
-      const response = await fetch(`/api/holidays?year=${holidayYear}`)
+      const response = await fetch(`/api/holidays?year=${currentYear}`)
       const contentType = response.headers.get('content-type') ?? ''
       if (!contentType.includes('application/json')) {
         throw new Error('공휴일 API가 연결되지 않았습니다. 배포 환경에 HOLIDAY_API_KEY를 설정했는지 확인하세요.')
@@ -739,10 +776,8 @@ function App() {
         throw new Error(payload.error || '공휴일을 불러오지 못했습니다.')
       }
 
-      setHolidayDates((current) =>
-        [...new Set([...current, ...payload.holidays!.map((holiday) => holiday.date)])].sort(),
-      )
-      setHolidayNotice(`${holidayYear}년 공휴일 ${payload.holidays.length}개를 불러왔습니다.`)
+      setHolidayDates(payload.holidays.map((holiday) => holiday.date).sort())
+      setHolidayNotice(`${currentYear}년 공휴일 ${payload.holidays.length}개를 저장했습니다.`)
     } catch (error) {
       setHolidayError(error instanceof Error ? error.message : '공휴일을 불러오지 못했습니다.')
     } finally {
@@ -755,7 +790,7 @@ function App() {
   }
 
   const removeExceptionDate = (date: string) => {
-    const nextDates = form.excludedDates.filter((item) => item !== date)
+    const nextDates = form.excludedDates.filter((item) => item.date !== date)
     setForm((current) => ({ ...current, excludedDates: nextDates }))
     if (editingId) {
       setSchedules((current) =>
@@ -918,12 +953,13 @@ function App() {
       color: schedule.color,
       enabled: schedule.enabled,
       memo: schedule.memo,
-      excludedDates: schedule.excludedDates,
+      excludedDates: normalizeExcludedDates(schedule.excludedDates),
       excludeHolidays: schedule.excludeHolidays,
       oneTimeDate: schedule.oneTimeDate,
     })
     setEditingId(schedule.id)
     setExceptionDate('')
+    setExceptionReason('')
   }
 
   const removeSchedule = (id: string) => {
@@ -1288,8 +1324,6 @@ function App() {
           </div>
         </section>
 
-        <p className="timer-note">사용자 설정 타이머는 1회성으로 실행 후 자동 삭제되며, 일정 예외 설정과 무관하게 작동합니다.</p>
-
         <section className="panel schedule-panel">
           <div className="section-title">
             <BellRing size={20} />
@@ -1310,6 +1344,7 @@ function App() {
                         className={[
                           'schedule-item',
                           schedule.enabled ? '' : 'disabled',
+                          isScheduleExcludedOnDate(schedule, new Date(), holidayDates) ? 'excluded-today' : '',
                           alertingScheduleIds.has(schedule.id) ? 'pre-alert' : '',
                         ].join(' ')}
                         key={`${day.key}-${schedule.id}`}
@@ -1320,6 +1355,9 @@ function App() {
                           {schedule.startTime}-{schedule.endTime}
                         </span>
                         <small>{formatAlarm(schedule.startTime, schedule.alarmBeforeMinutes)} 알람</small>
+                        {isScheduleExcludedOnDate(schedule, new Date(), holidayDates) && (
+                          <small className="schedule-exception-label">{getTodayExclusionLabel(schedule, holidayDates)}</small>
+                        )}
                       </article>
                     ))}
                 </div>
@@ -1338,6 +1376,9 @@ function App() {
                   <strong>{schedule.title}</strong>
                   <span>{schedule.startTime}</span>
                   <span>{formatAlarm(schedule.startTime, schedule.alarmBeforeMinutes)} 알람</span>
+                  {isScheduleExcludedOnDate(schedule, new Date(), holidayDates) && (
+                    <small className="schedule-exception-label">{getTodayExclusionLabel(schedule, holidayDates)}</small>
+                  )}
                 </div>
               ))
             )}
@@ -1513,18 +1554,28 @@ function App() {
                   type="date"
                   value={exceptionDate}
                 />
+                <input
+                  aria-label="제외 사유"
+                  onChange={(event) => setExceptionReason(event.target.value)}
+                  placeholder="제외 사유 (선택)"
+                  type="text"
+                  value={exceptionReason}
+                />
                 <button className="secondary" onClick={addExceptionDate} type="button">
                   추가
                 </button>
               </div>
               {form.excludedDates.length > 0 ? (
                 <div className="exception-list">
-                  {form.excludedDates.map((date) => (
-                    <span className="exception-chip" key={date}>
-                      {date}
+                  {form.excludedDates.map((item) => (
+                    <span className="exception-chip exception-date-chip" key={item.date}>
+                      <span>
+                        {item.date}
+                        {item.reason && <small>{item.reason}</small>}
+                      </span>
                       <button
-                        aria-label={`${date} 제외 취소`}
-                        onClick={() => removeExceptionDate(date)}
+                        aria-label={`${item.date} 제외 취소`}
+                        onClick={() => removeExceptionDate(item.date)}
                         type="button"
                       >
                         ×
@@ -1558,22 +1609,20 @@ function App() {
 
             <div className="exception-editor holiday-editor">
               <div className="exception-input-row">
-                <input
-                  aria-label="공휴일 조회 연도"
-                  max="2100"
-                  min="2000"
-                  onChange={(event) => setHolidayYear(event.target.value)}
-                  type="number"
-                  value={holidayYear}
-                />
+                <strong>{currentYear}년 공휴일</strong>
                 <button className="secondary" disabled={holidayLoading} onClick={fetchHolidays} type="button">
                   {holidayLoading ? '불러오는 중…' : '자동 불러오기'}
                 </button>
               </div>
               {holidayError && <small role="alert">{holidayError}</small>}
               {holidayNotice && <small role="status">{holidayNotice}</small>}
-              <span className="label-text">공휴일 날짜 등록</span>
-              <small>연도별 공휴일과 대체공휴일을 정확히 반영하려면 날짜를 직접 등록하세요.</small>
+              <div className="exception-status" role="status">
+                공휴일 {holidayDates.length}개 저장됨 · 이 일정의 공휴일 제외:{' '}
+                {form.excludeHolidays ? '적용 중' : '미적용'}
+                {editingId ? ' · 현재 일정에 즉시 반영됨' : ' · 새 일정 저장 시 반영됨'}
+              </div>
+              <span className="label-text">{currentYear}년 공휴일 날짜 등록</span>
+              <small>현재 연도의 공휴일과 대체공휴일만 저장합니다.</small>
               <div className="exception-input-row">
                 <input
                   aria-label="공휴일 날짜"

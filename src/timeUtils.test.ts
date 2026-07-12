@@ -63,7 +63,7 @@ describe('timeUtils', () => {
   })
 
   it('skips an excluded date from a repeating schedule', () => {
-    const schedule = { ...baseSchedule, excludedDates: ['2026-07-06'] }
+    const schedule = { ...baseSchedule, excludedDates: [{ date: '2026-07-06', reason: '' }] }
     const currentDate = new Date(2026, 6, 5, 23, 39, 50)
     const occurrence = getNextAlarmOccurrence(schedule, currentDate)
 
@@ -71,7 +71,7 @@ describe('timeUtils', () => {
   })
 
   it('does not return a due alarm on an excluded date', () => {
-    const schedule = { ...baseSchedule, excludedDates: ['2026-07-06'] }
+    const schedule = { ...baseSchedule, excludedDates: [{ date: '2026-07-06', reason: '' }] }
     const currentDate = new Date(2026, 6, 5, 23, 40, 20)
     expect(getDueAlarmOccurrence(schedule, currentDate)).toBeNull()
   })
@@ -85,7 +85,7 @@ describe('timeUtils', () => {
   })
 
   it('treats an excluded date as blocked for saved schedules', () => {
-    const schedule = { ...baseSchedule, excludedDates: ['2026-07-06'] }
+    const schedule = { ...baseSchedule, excludedDates: [{ date: '2026-07-06', reason: '' }] }
     expect(isScheduleExcludedOnDate(schedule, new Date(2026, 6, 6))).toBe(true)
   })
 

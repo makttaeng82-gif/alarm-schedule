@@ -114,7 +114,7 @@ export const isScheduleExcludedOnDate = (
 ) => {
   const dateKey = formatDateKey(date)
   return (
-    (schedule.excludedDates ?? []).includes(dateKey) ||
+    (schedule.excludedDates ?? []).some((item) => item.date === dateKey) ||
     (schedule.excludeHolidays && holidayDates.includes(dateKey))
   )
 }
