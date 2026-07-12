@@ -18,6 +18,8 @@ export const getEmptyForm = (): ScheduleForm => ({
   color: colors[0],
   enabled: true,
   memo: '',
+  excludedDates: [],
+  excludeHolidays: false,
 })
 
 export const toMinutes = (time: string) => {
@@ -101,6 +103,21 @@ const addDays = (date: Date, days: number) => {
   return next
 }
 
+export const formatDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+export const isScheduleExcludedOnDate = (
+  schedule: Pick<Schedule, 'excludedDates' | 'excludeHolidays'>,
+  date: Date,
+  holidayDates: string[] = [],
+) => {
+  const dateKey = formatDateKey(date)
+  return (
+    (schedule.excludedDates ?? []).includes(dateKey) ||
+    (schedule.excludeHolidays && holidayDates.includes(dateKey))
+  )
+}
+
 export const getAlarmOccurrenceForStartDate = (
   schedule: Schedule,
   startDate: Date,
@@ -114,12 +131,14 @@ export const getAlarmOccurrencesAround = (
   schedule: Schedule,
   referenceDate: Date,
   dayRange = 8,
+  holidayDates: string[] = [],
 ) => {
   const occurrences: AlarmOccurrence[] = []
 
   for (let offset = -dayRange; offset <= dayRange; offset += 1) {
     const candidateDate = addDays(referenceDate, offset)
     if (!schedule.days.includes(getDayKeyFromDate(candidateDate))) continue
+    if (isScheduleExcludedOnDate(schedule, candidateDate, holidayDates)) continue
     occurrences.push(getAlarmOccurrenceForStartDate(schedule, candidateDate))
   }
 
@@ -130,13 +149,18 @@ export const getDueAlarmOccurrence = (
   schedule: Schedule,
   currentDate: Date,
   windowMs = 60_000,
+  holidayDates: string[] = [],
 ) =>
-  getAlarmOccurrencesAround(schedule, currentDate).find(({ alarmDate }) => {
+  getAlarmOccurrencesAround(schedule, currentDate, 8, holidayDates).find(({ alarmDate }) => {
     const diff = currentDate.getTime() - alarmDate.getTime()
     return diff >= 0 && diff < windowMs
   }) ?? null
 
-export const getNextAlarmOccurrence = (schedule: Schedule, currentDate: Date) =>
-  getAlarmOccurrencesAround(schedule, currentDate)
+export const getNextAlarmOccurrence = (
+  schedule: Schedule,
+  currentDate: Date,
+  holidayDates: string[] = [],
+) =>
+  getAlarmOccurrencesAround(schedule, currentDate, 8, holidayDates)
     .filter(({ alarmDate }) => alarmDate.getTime() > currentDate.getTime())
     .sort((a, b) => a.alarmDate.getTime() - b.alarmDate.getTime())[0] ?? null

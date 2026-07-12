@@ -41,6 +41,7 @@ export const notificationLabels: Record<NotificationStatus, string> = {
 export const STORAGE_KEY = 'alarm-schedule-items'
 export const THEME_KEY = 'alarm-schedule-theme'
 export const QUICK_TIMERS_KEY = 'alarm-schedule-quick-timers'
+export const HOLIDAY_DATES_KEY = 'alarm-schedule-holiday-dates'
 
 export const days: Array<{ key: DayKey; label: string }> = [
   { key: 'mon', label: '월' },

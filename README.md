@@ -31,7 +31,7 @@ Cloudflare Pages는 빌드 시 `CF_PAGES=1` 환경 변수를 자동으로 주입
 피드백 버튼을 Google Form에 연결하려면 Cloudflare Pages 환경 변수에 아래 값을 추가합니다.
 
 ```text
-VITE_FEEDBACK_FORM_URL=https://docs.google.com/forms/d/e/1FAIpQLSfy18TkMly1cXauCMz6PoimxQY1HrjGk6GrUc38yanTZzz6Pg/viewform?usp=dialog
+VITE_FEEDBACK_FORM_URL=https://docs.google.com/forms/d/e/1FAIpQLSfy18TkMly1cXauCMz6PoimxQY1HrjGk6GrUc38yanTZzz6Pg/viewform
 ```
 
 ## 기능

@@ -22,6 +22,7 @@ import {
   days,
   defaultQuickTimers,
   helpContent,
+  HOLIDAY_DATES_KEY,
   notificationLabels,
   QUICK_TIMERS_KEY,
   soundKeys,
@@ -40,10 +41,12 @@ import {
   getDayKeyFromDate,
   getDueAlarmOccurrence,
   getEmptyForm,
+  getAlarmOccurrencesAround,
   getNextAlarmOccurrence,
   getNextEndTime,
   getStartTimeChange,
   getTodayKey,
+  isScheduleExcludedOnDate,
   toMinutes,
 } from './timeUtils'
 import type {
@@ -85,7 +88,10 @@ const isSchedule = (value: unknown): value is Schedule => {
     isNumber(schedule.volume) &&
     isString(schedule.color) &&
     isBoolean(schedule.enabled) &&
-    isString(schedule.memo)
+    isString(schedule.memo) &&
+    (!('excludedDates' in schedule) ||
+      (Array.isArray(schedule.excludedDates) && schedule.excludedDates.every(isString))) &&
+    (!('excludeHolidays' in schedule) || isBoolean(schedule.excludeHolidays))
   )
 }
 
@@ -106,20 +112,34 @@ const isBackupData = (value: unknown): value is BackupData => {
     backup.schedules.every(isSchedule) &&
     Array.isArray(backup.quickTimers) &&
     backup.quickTimers.every(isQuickTimer) &&
-    (backup.theme === 'light' || backup.theme === 'dark')
+    (backup.theme === 'light' || backup.theme === 'dark') &&
+    (!('holidayDates' in backup) ||
+      (Array.isArray(backup.holidayDates) && backup.holidayDates.every(isString)))
   )
 }
 
 const hours = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'))
 const minutes = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'))
 const defaultFeedbackFormUrl =
-  'https://docs.google.com/forms/d/e/1FAIpQLSfy18TkMly1cXauCMz6PoimxQY1HrjGk6GrUc38yanTZzz6Pg/viewform?usp=dialog'
+  'https://docs.google.com/forms/d/e/1FAIpQLSfy18TkMly1cXauCMz6PoimxQY1HrjGk6GrUc38yanTZzz6Pg/viewform'
 const feedbackFormUrl = import.meta.env.VITE_FEEDBACK_FORM_URL?.trim() || defaultFeedbackFormUrl
+const siteBaseUrl = import.meta.env.BASE_URL
 
 const hasSameScheduleTime = (first: Schedule, second: Schedule) =>
   first.startTime === second.startTime &&
   first.endTime === second.endTime &&
   first.days.some((day) => second.days.includes(day))
+
+const hasSameAlarmOccurrence = (first: Schedule, second: Schedule, holidayDates: string[]) => {
+  const referenceDate = new Date()
+  const firstAlarmTimes = new Set(
+    getAlarmOccurrencesAround(first, referenceDate, 8, holidayDates).map(({ alarmDate }) => alarmDate.getTime()),
+  )
+
+  return getAlarmOccurrencesAround(second, referenceDate, 8, holidayDates).some(({ alarmDate }) =>
+    firstAlarmTimes.has(alarmDate.getTime()),
+  )
+}
 
 function TimePicker({ value, onChange }: TimePickerProps) {
   const [open, setOpen] = useState(false)
@@ -214,6 +234,8 @@ const getInitialSchedules = (): Schedule[] => {
         color: colors[0],
         enabled: true,
         memo: '예시',
+        excludedDates: [],
+        excludeHolidays: false,
       },
     ]
   }
@@ -229,6 +251,12 @@ const getInitialSchedules = (): Schedule[] => {
           ? {
               ...schedule,
               volume: typeof (schedule as Schedule).volume === 'number' ? (schedule as Schedule).volume : 70,
+              excludedDates: Array.isArray((schedule as Schedule).excludedDates)
+                ? (schedule as Schedule).excludedDates
+                : [],
+              excludeHolidays: typeof (schedule as Schedule).excludeHolidays === 'boolean'
+                ? (schedule as Schedule).excludeHolidays
+                : false,
             }
           : schedule,
       )
@@ -256,6 +284,24 @@ function App() {
   const [schedules, setSchedules] = useState<Schedule[]>(getInitialSchedules)
   const [form, setForm] = useState<ScheduleForm>(getEmptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [exceptionDate, setExceptionDate] = useState('')
+  const [holidayDate, setHolidayDate] = useState('')
+  const [holidayYear, setHolidayYear] = useState(String(new Date().getFullYear()))
+  const [holidayLoading, setHolidayLoading] = useState(false)
+  const [holidayError, setHolidayError] = useState('')
+  const [holidayNotice, setHolidayNotice] = useState('')
+  const [exceptionModalOpen, setExceptionModalOpen] = useState(false)
+  const [holidayDates, setHolidayDates] = useState<string[]>(() => {
+    const saved = localStorage.getItem(HOLIDAY_DATES_KEY)
+    if (!saved) return []
+
+    try {
+      const parsed = JSON.parse(saved) as unknown
+      return Array.isArray(parsed) && parsed.every(isString) ? parsed.sort() : []
+    } catch {
+      return []
+    }
+  })
   const [quickTimers, setQuickTimers] = useState<QuickTimer[]>(getInitialQuickTimers)
   const [quickTimerHours, setQuickTimerHours] = useState(0)
   const [quickTimerMinutes, setQuickTimerMinutes] = useState(30)
@@ -266,7 +312,7 @@ function App() {
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark',
   )
-  const [activeAlarm, setActiveAlarm] = useState<ActiveAlarm | null>(null)
+  const [activeAlarms, setActiveAlarms] = useState<ActiveAlarm[]>([])
   const [manualPreAlert, setManualPreAlert] = useState(false)
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -301,6 +347,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
+
+  useEffect(() => {
+    localStorage.setItem(HOLIDAY_DATES_KEY, JSON.stringify(holidayDates))
+  }, [holidayDates])
 
   useEffect(() => {
     const updateClock = () => {
@@ -341,11 +391,11 @@ function App() {
     return (
       schedules
         .filter((schedule) => schedule.enabled)
-        .map((schedule) => getNextAlarmOccurrence(schedule, new Date(tickMs)))
+        .map((schedule) => getNextAlarmOccurrence(schedule, new Date(tickMs), holidayDates))
         .filter((item) => item !== null)
         .sort((a, b) => a.alarmDate.getTime() - b.alarmDate.getTime())[0] ?? null
     )
-  }, [schedules, tickMs])
+  }, [holidayDates, schedules, tickMs])
 
   // 알람 10초 전이면 해당 일정 카드와 전체 배경을 깜빡이기 위해 id 목록을 만듭니다.
   const alertingScheduleIds = useMemo(() => {
@@ -355,14 +405,14 @@ function App() {
       schedules
         .filter((schedule) => schedule.enabled)
         .filter((schedule) => {
-          const nextAlarm = getNextAlarmOccurrence(schedule, new Date(tickMs))
+          const nextAlarm = getNextAlarmOccurrence(schedule, new Date(tickMs), holidayDates)
           if (!nextAlarm) return false
           const diff = nextAlarm.alarmDate.getTime() - tickMs
           return diff > 0 && diff <= 10_000
         })
         .map((schedule) => schedule.id),
     )
-  }, [schedules, tickMs])
+  }, [holidayDates, schedules, tickMs])
 
   const sameTimeSchedules = useMemo(() => {
     const cleanTitle = form.title.trim()
@@ -376,6 +426,23 @@ function App() {
 
     return schedules.filter((schedule) => schedule.id !== editingId && hasSameScheduleTime(candidate, schedule))
   }, [editingId, form, schedules])
+
+  const conflictingAlarmSchedules = useMemo(() => {
+    if ((!editingId && !form.title.trim()) || !form.enabled) return []
+
+    const candidate: Schedule = {
+      ...form,
+      id: editingId ?? 'new-schedule',
+      title: form.title.trim() || form.title,
+    }
+
+    return schedules.filter(
+      (schedule) =>
+        schedule.id !== editingId &&
+        schedule.enabled &&
+        hasSameAlarmOccurrence(candidate, schedule, holidayDates),
+    )
+  }, [editingId, form, holidayDates, schedules])
 
   const playSound = useCallback((sound: SoundKey, volume: number) => {
     const context = getAudioContext()
@@ -425,32 +492,48 @@ function App() {
       testAlarmTimeoutRef.current = null
     }
     setManualPreAlert(false)
-    setActiveAlarm(null)
+    setActiveAlarms([])
   }, [])
 
-  // 알람이 도래하면 알람 배너를 띄우고, 사용자가 멈출 때까지 소리를 반복합니다.
-  const fireAlarm = useCallback(
-    (schedule: Schedule) => {
-      stopAlarm()
-      setActiveAlarm({
+  // 같은 시각에 도래한 알람은 하나의 그룹으로 표시하고 소리는 한 번만 반복합니다.
+  const fireAlarmGroup = useCallback(
+    (schedulesToFire: Schedule[]) => {
+      if (schedulesToFire.length === 0) return
+
+      const alarmItems = schedulesToFire.map((schedule) => ({
         id: schedule.id,
         title: schedule.title,
         startTime: schedule.startTime,
         alarmBeforeMinutes: schedule.alarmBeforeMinutes,
         color: schedule.color,
-      })
-      playSound(schedule.sound, schedule.volume)
-      alarmLoopRef.current = window.setInterval(() => {
-        playSound(schedule.sound, schedule.volume)
-      }, 1_600)
+      }))
+      const firstSchedule = schedulesToFire[0]
+
+      setActiveAlarms((current) => [
+        ...current,
+        ...alarmItems.filter((item) => !current.some((active) => active.id === item.id)),
+      ])
+
+      playSound(firstSchedule.sound, firstSchedule.volume)
+      if (alarmLoopRef.current === null) {
+        alarmLoopRef.current = window.setInterval(() => {
+          playSound(firstSchedule.sound, firstSchedule.volume)
+        }, 1_600)
+      }
 
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification(schedule.title, {
-          body: `${schedule.startTime} 시작, ${schedule.alarmBeforeMinutes}분 전`,
-        })
+        new Notification(
+          alarmItems.length > 1 ? `${alarmItems.length}개 알람` : firstSchedule.title,
+          {
+            body:
+              alarmItems.length > 1
+                ? alarmItems.map((item) => item.title).join(', ')
+                : `${firstSchedule.startTime} 시작, ${firstSchedule.alarmBeforeMinutes}분 전`,
+          },
+        )
       }
     },
-    [playSound, stopAlarm],
+    [playSound],
   )
 
   useEffect(() => stopAlarm, [stopAlarm])
@@ -461,7 +544,7 @@ function App() {
 
     setManualPreAlert(true)
     testAlarmTimeoutRef.current = window.setTimeout(() => {
-      fireAlarm({
+      fireAlarmGroup([{
         id: 'test-alarm',
         title: '알람 테스트',
         days: [getTodayKey()],
@@ -473,7 +556,9 @@ function App() {
         color: form.color,
         enabled: true,
         memo: '',
-      })
+        excludedDates: [],
+        excludeHolidays: false,
+      }])
     }, 10_000)
   }
 
@@ -482,8 +567,10 @@ function App() {
       const currentDate = new Date()
 
       // 실제 시각 기준으로 검사해 10초 전 강조와 알람 시작을 맞춘다.
+      const dueSchedules: Schedule[] = []
+
       schedules.forEach((schedule) => {
-        const occurrence = getDueAlarmOccurrence(schedule, currentDate)
+        const occurrence = getDueAlarmOccurrence(schedule, currentDate, 60_000, holidayDates)
         if (!occurrence) return
 
         const triggerKey = `${schedule.id}-${occurrence.startDate.toISOString()}-${occurrence.alarmDate.toISOString()}`
@@ -493,13 +580,15 @@ function App() {
           !triggeredRef.current.has(triggerKey)
         ) {
           triggeredRef.current.add(triggerKey)
-          fireAlarm(schedule)
+          dueSchedules.push(schedule)
         }
       })
+
+      fireAlarmGroup(dueSchedules)
     }, 1000)
 
     return () => window.clearInterval(alarmTimer)
-  }, [fireAlarm, schedules])
+  }, [fireAlarmGroup, holidayDates, schedules])
 
   const requestNotifications = async () => {
     if (typeof Notification === 'undefined') return
@@ -515,6 +604,7 @@ function App() {
       schedules,
       quickTimers,
       theme,
+      holidayDates,
     }
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -536,7 +626,15 @@ function App() {
         return
       }
 
-      setPendingBackup(parsed)
+      setPendingBackup({
+        ...parsed,
+        schedules: parsed.schedules.map((schedule) => ({
+          ...schedule,
+          excludedDates: Array.isArray(schedule.excludedDates) ? schedule.excludedDates : [],
+          excludeHolidays: typeof schedule.excludeHolidays === 'boolean' ? schedule.excludeHolidays : false,
+        })),
+        holidayDates: parsed.holidayDates ?? [],
+      })
     } catch {
       window.alert('백업 파일을 읽을 수 없습니다.')
     } finally {
@@ -550,6 +648,7 @@ function App() {
     setSchedules(pendingBackup.schedules)
     setQuickTimers(pendingBackup.quickTimers)
     setTheme(pendingBackup.theme)
+    setHolidayDates(pendingBackup.holidayDates ?? [])
     resetForm()
     cancelQuickTimerEdit()
     setPendingBackup(null)
@@ -559,6 +658,7 @@ function App() {
     stopAlarm()
     setSchedules([])
     setQuickTimers(defaultQuickTimers)
+    setHolidayDates([])
     resetForm()
     cancelQuickTimerEdit()
     setPendingBackup(null)
@@ -568,6 +668,86 @@ function App() {
   const resetForm = () => {
     setForm(getEmptyForm())
     setEditingId(null)
+    setExceptionDate('')
+  }
+
+  const addExceptionDate = () => {
+    if (!exceptionDate) return
+    const nextDates = [...new Set([...form.excludedDates, exceptionDate])].sort()
+    setForm((current) => ({
+      ...current,
+      excludedDates: nextDates,
+    }))
+    if (editingId) {
+      setSchedules((current) =>
+        current.map((schedule) =>
+          schedule.id === editingId ? { ...schedule, excludedDates: nextDates } : schedule,
+        ),
+      )
+    }
+    if (editingId && isScheduleExcludedOnDate(form, new Date(`${exceptionDate}T12:00:00`))) {
+      setActiveAlarms((current) => current.filter((alarm) => alarm.id !== editingId))
+    }
+    setExceptionDate('')
+  }
+
+  const addHolidayDate = () => {
+    if (!holidayDate) return
+    setHolidayDates((current) => [...new Set([...current, holidayDate])].sort())
+    setActiveAlarms((current) =>
+      current.filter((alarm) => {
+        const schedule = schedules.find((item) => item.id === alarm.id)
+        return !schedule || !isScheduleExcludedOnDate(schedule, new Date(`${holidayDate}T12:00:00`), [holidayDate])
+      }),
+    )
+    setHolidayDate('')
+  }
+
+  const fetchHolidays = async () => {
+    if (!/^\d{4}$/.test(holidayYear)) return
+
+    setHolidayLoading(true)
+    setHolidayError('')
+    setHolidayNotice('')
+    try {
+      const response = await fetch(`/api/holidays?year=${holidayYear}`)
+      const contentType = response.headers.get('content-type') ?? ''
+      if (!contentType.includes('application/json')) {
+        throw new Error('공휴일 API가 연결되지 않았습니다. 배포 환경에 HOLIDAY_API_KEY를 설정했는지 확인하세요.')
+      }
+      const payload = (await response.json()) as {
+        error?: string
+        holidays?: Array<{ date: string; name: string }>
+      }
+      if (!response.ok || !payload.holidays) {
+        throw new Error(payload.error || '공휴일을 불러오지 못했습니다.')
+      }
+
+      setHolidayDates((current) =>
+        [...new Set([...current, ...payload.holidays!.map((holiday) => holiday.date)])].sort(),
+      )
+      setHolidayNotice(`${holidayYear}년 공휴일 ${payload.holidays.length}개를 불러왔습니다.`)
+    } catch (error) {
+      setHolidayError(error instanceof Error ? error.message : '공휴일을 불러오지 못했습니다.')
+    } finally {
+      setHolidayLoading(false)
+    }
+  }
+
+  const removeHolidayDate = (date: string) => {
+    setHolidayDates((current) => current.filter((item) => item !== date))
+  }
+
+  const removeExceptionDate = (date: string) => {
+    const nextDates = form.excludedDates.filter((item) => item !== date)
+    setForm((current) => ({ ...current, excludedDates: nextDates }))
+    if (editingId) {
+      setSchedules((current) =>
+        current.map((schedule) =>
+          schedule.id === editingId ? { ...schedule, excludedDates: nextDates } : schedule,
+        ),
+      )
+    }
   }
 
   const selectToday = () => {
@@ -721,8 +901,11 @@ function App() {
       color: schedule.color,
       enabled: schedule.enabled,
       memo: schedule.memo,
+      excludedDates: schedule.excludedDates,
+      excludeHolidays: schedule.excludeHolidays,
     })
     setEditingId(schedule.id)
+    setExceptionDate('')
   }
 
   const removeSchedule = (id: string) => {
@@ -754,7 +937,7 @@ function App() {
         theme,
         alertingScheduleIds.size > 0 ? 'pre-alarm' : '',
         manualPreAlert ? 'pre-alarm' : '',
-        activeAlarm ? 'alarm-ringing' : '',
+        activeAlarms.length > 0 ? 'alarm-ringing' : '',
       ].join(' ')}
     >
       <section className="topbar">
@@ -797,13 +980,15 @@ function App() {
         </section>
       )}
 
-      {activeAlarm && (
-        <section className="alarm-banner" style={{ borderColor: activeAlarm.color }}>
+      {activeAlarms.length > 0 && (
+        <section className="alarm-banner" style={{ borderColor: activeAlarms[0].color }}>
           <div>
-            <strong>{activeAlarm.title}</strong>
-            <span>
-              {activeAlarm.startTime} 시작, {activeAlarm.alarmBeforeMinutes}분 전 알람
-            </span>
+            <strong>{activeAlarms.length > 1 ? `${activeAlarms.length}개 알람` : activeAlarms[0].title}</strong>
+            {activeAlarms.map((alarm) => (
+              <span key={alarm.id}>
+                {alarm.title} · {alarm.startTime} 시작, {alarm.alarmBeforeMinutes}분 전
+              </span>
+            ))}
           </div>
           <button className="stop-alarm" onClick={stopAlarm} type="button">
             <CircleStop size={20} />
@@ -897,6 +1082,19 @@ function App() {
             </div>
           )}
 
+          {conflictingAlarmSchedules.length > 0 && (
+            <div className="alarm-conflict-block" role="status">
+              <strong>실제 알람 시간이 겹칩니다</strong>
+              <span>
+                {conflictingAlarmSchedules.slice(0, 3).map((schedule) => schedule.title).join(', ')}
+                {conflictingAlarmSchedules.length > 3
+                  ? ` 외 ${conflictingAlarmSchedules.length - 3}개`
+                  : ''}
+                과 같은 시각에 알람이 울릴 수 있습니다. 저장은 가능합니다.
+              </span>
+            </div>
+          )}
+
           <div className="memo-settings-row">
             <label>
               메모
@@ -932,6 +1130,11 @@ function App() {
                   ))}
                 </div>
               </div>
+
+              <button className="secondary exception-button" onClick={() => setExceptionModalOpen(true)} type="button">
+                일정 예외 설정
+                {(form.excludedDates.length > 0 || form.excludeHolidays) && ' · 설정됨'}
+              </button>
             </div>
           </div>
 
@@ -1066,6 +1269,8 @@ function App() {
             ))}
           </div>
         </section>
+
+        <p className="timer-note">사용자 설정 타이머는 일정 예외 설정과 무관하게 작동합니다.</p>
 
         <section className="panel schedule-panel">
           <div className="section-title">
@@ -1246,14 +1451,149 @@ function App() {
 
       <footer className="site-footer">
         <div>
-          <h2>이용사항</h2>
-          <p>일정은 지금 사용하는 브라우저에 저장됩니다. 다른 기기에서는 자동으로 보이지 않습니다. 필요하면 백업 파일을 내려받아 보관하세요.</p>
+          <h2>사용법</h2>
+          <p>
+            <a href={`${siteBaseUrl}guide/how-to-use/index.html`}>사용방법</a>
+          </p>
         </div>
         <div>
-          <h2>주의사항</h2>
-          <p>알람은 이 페이지가 열려 있을 때 가장 잘 울립니다. 브라우저를 닫거나 컴퓨터가 절전 상태이면 알람이 울리지 않을 수 있습니다.</p>
+          <h2>도움말</h2>
+          <p>
+            <a href={`${siteBaseUrl}guide/browser-alarm/index.html`}>브라우저 알람 주의사항</a><br />
+            <a href={`${siteBaseUrl}faq/index.html`}>자주 묻는 질문</a>
+          </p>
         </div>
       </footer>
+
+      {exceptionModalOpen && (
+        <div className="help-overlay" role="presentation" onClick={() => setExceptionModalOpen(false)}>
+          <section
+            aria-modal="true"
+            className="help-modal exception-modal"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="help-modal-header">
+              <h2>일정 예외 설정</h2>
+              <button
+                aria-label="일정 예외 설정 닫기"
+                className="icon-only secondary"
+                onClick={() => setExceptionModalOpen(false)}
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>이 일정에만 적용할 제외 날짜와 공휴일 제외 여부를 설정합니다.</p>
+
+            <div className="exception-editor">
+              <span className="label-text">이 일정에서 제외할 날짜</span>
+              <div className="exception-input-row">
+                <input
+                  aria-label="이 일정에서 제외할 날짜"
+                  onChange={(event) => setExceptionDate(event.target.value)}
+                  type="date"
+                  value={exceptionDate}
+                />
+                <button className="secondary" onClick={addExceptionDate} type="button">
+                  추가
+                </button>
+              </div>
+              {form.excludedDates.length > 0 ? (
+                <div className="exception-list">
+                  {form.excludedDates.map((date) => (
+                    <span className="exception-chip" key={date}>
+                      {date}
+                      <button
+                        aria-label={`${date} 제외 취소`}
+                        onClick={() => removeExceptionDate(date)}
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <small>등록된 제외 날짜가 없습니다.</small>
+              )}
+            </div>
+
+            <label className="toggle exception-holiday-toggle">
+              <input
+                checked={form.excludeHolidays}
+                onChange={(event) => {
+                  const excludeHolidays = event.target.checked
+                  setForm((current) => ({ ...current, excludeHolidays }))
+                  if (editingId) {
+                    setSchedules((current) =>
+                      current.map((schedule) =>
+                        schedule.id === editingId ? { ...schedule, excludeHolidays } : schedule,
+                      ),
+                    )
+                  }
+                }}
+                type="checkbox"
+              />
+              등록한 공휴일 날짜 제외
+            </label>
+
+            <div className="exception-editor holiday-editor">
+              <div className="exception-input-row">
+                <input
+                  aria-label="공휴일 조회 연도"
+                  max="2100"
+                  min="2000"
+                  onChange={(event) => setHolidayYear(event.target.value)}
+                  type="number"
+                  value={holidayYear}
+                />
+                <button className="secondary" disabled={holidayLoading} onClick={fetchHolidays} type="button">
+                  {holidayLoading ? '불러오는 중…' : '자동 불러오기'}
+                </button>
+              </div>
+              {holidayError && <small role="alert">{holidayError}</small>}
+              {holidayNotice && <small role="status">{holidayNotice}</small>}
+              <span className="label-text">공휴일 날짜 등록</span>
+              <small>연도별 공휴일과 대체공휴일을 정확히 반영하려면 날짜를 직접 등록하세요.</small>
+              <div className="exception-input-row">
+                <input
+                  aria-label="공휴일 날짜"
+                  onChange={(event) => setHolidayDate(event.target.value)}
+                  type="date"
+                  value={holidayDate}
+                />
+                <button className="secondary" onClick={addHolidayDate} type="button">
+                  추가
+                </button>
+              </div>
+              {holidayDates.length > 0 ? (
+                <div className="exception-list">
+                  {holidayDates.map((date) => (
+                    <span className="exception-chip" key={date}>
+                      {date}
+                      <button
+                        aria-label={`${date} 공휴일 삭제`}
+                        onClick={() => removeHolidayDate(date)}
+                        type="button"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <small>등록된 공휴일 날짜가 없습니다.</small>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="primary" onClick={() => setExceptionModalOpen(false)} type="button">
+                설정 완료
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {activeHelp && (
         <div className="help-overlay" role="presentation" onClick={() => setActiveHelp(null)}>

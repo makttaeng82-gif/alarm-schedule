@@ -26,6 +26,8 @@ export type Schedule = {
   color: string
   enabled: boolean
   memo: string
+  excludedDates: string[]
+  excludeHolidays: boolean
 }
 
 export type ScheduleForm = Omit<Schedule, 'id'>
@@ -52,6 +54,7 @@ export type BackupData = {
   schedules: Schedule[]
   quickTimers: QuickTimer[]
   theme: Theme
+  holidayDates?: string[]
 }
 
 export type NotificationStatus = NotificationPermission | 'unsupported'

@@ -6,6 +6,7 @@
     <meta name="google-site-verification" content="TKQ6PXyLKh4aF1EeMtbH8h5iNrdU11v1Abxgir8zhrc" />
     <meta name="google-adsense-account" content="ca-pub-5788099852023630" />
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
@@ -32,17 +33,27 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "알람 스케줄표",
-        "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "Web",
-        "url": "https://alarm-schedule.pages.dev/",
-        "description": "요일별 반복 일정, 사전 알림, 사용자 설정 타이머를 브라우저에서 관리할 수 있는 무료 알람 스케줄표입니다.",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "KRW"
-        }
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "name": "알람 스케줄표",
+            "url": "https://alarm-schedule.pages.dev/",
+            "description": "요일별 반복 일정과 브라우저 알람을 관리하는 무료 알람 스케줄표입니다."
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "알람 스케줄표",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "Web",
+            "url": "https://alarm-schedule.pages.dev/",
+            "description": "요일별 반복 일정, 사전 알림, 사용자 설정 타이머를 브라우저에서 관리할 수 있는 무료 알람 스케줄표입니다.",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "KRW"
+            }
+          }
+        ]
       }
     </script>
     <title>알람 스케줄표 - 반복 일정 알람 타이머</title>

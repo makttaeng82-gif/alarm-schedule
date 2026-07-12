@@ -4,6 +4,7 @@ import {
   getDueAlarmOccurrence,
   getNextAlarmOccurrence,
   getStartTimeChange,
+  isScheduleExcludedOnDate,
 } from './timeUtils'
 import type { Schedule } from './types'
 
@@ -19,6 +20,8 @@ const baseSchedule: Schedule = {
   color: '#dc2626',
   enabled: true,
   memo: '',
+  excludedDates: [],
+  excludeHolidays: false,
 }
 
 const localStamp = (date: Date) =>
@@ -56,5 +59,32 @@ describe('timeUtils', () => {
     const occurrence = getNextAlarmOccurrence(baseSchedule, currentDate)
 
     expect(occurrence ? localStamp(occurrence.alarmDate) : null).toBe('2026-07-05-23-40-00')
+  })
+
+  it('skips an excluded date from a repeating schedule', () => {
+    const schedule = { ...baseSchedule, excludedDates: ['2026-07-06'] }
+    const currentDate = new Date(2026, 6, 5, 23, 39, 50)
+    const occurrence = getNextAlarmOccurrence(schedule, currentDate)
+
+    expect(occurrence ? localStamp(occurrence.startDate) : null).toBe('2026-07-13-00-10-00')
+  })
+
+  it('does not return a due alarm on an excluded date', () => {
+    const schedule = { ...baseSchedule, excludedDates: ['2026-07-06'] }
+    const currentDate = new Date(2026, 6, 5, 23, 40, 20)
+    expect(getDueAlarmOccurrence(schedule, currentDate)).toBeNull()
+  })
+
+  it('skips a registered holiday when holiday exclusion is enabled', () => {
+    const schedule = { ...baseSchedule, excludeHolidays: true }
+    const currentDate = new Date(2026, 6, 5, 23, 39, 50)
+    const occurrence = getNextAlarmOccurrence(schedule, currentDate, ['2026-07-06'])
+
+    expect(occurrence ? localStamp(occurrence.startDate) : null).toBe('2026-07-13-00-10-00')
+  })
+
+  it('treats an excluded date as blocked for saved schedules', () => {
+    const schedule = { ...baseSchedule, excludedDates: ['2026-07-06'] }
+    expect(isScheduleExcludedOnDate(schedule, new Date(2026, 6, 6))).toBe(true)
   })
 })
