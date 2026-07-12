@@ -483,7 +483,9 @@ function App() {
       title: cleanTitle || form.title,
     }
 
-    return schedules.filter((schedule) => schedule.id !== editingId && hasSameScheduleTime(candidate, schedule))
+    return schedules.filter(
+      (schedule) => schedule.id !== editingId && !schedule.oneTimeDate && hasSameScheduleTime(candidate, schedule),
+    )
   }, [editingId, form, schedules])
 
   const conflictingAlarmSchedules = useMemo(() => {
@@ -644,6 +646,11 @@ function App() {
       // 실제 시각 기준으로 검사해 10초 전 강조와 알람 시작을 맞춘다.
       const dueSchedules: Schedule[] = []
 
+      if (triggeredRef.current.size > 500) {
+        const oldKeys = [...triggeredRef.current].slice(0, 250)
+        oldKeys.forEach((key) => triggeredRef.current.delete(key))
+      }
+
       schedules.forEach((schedule) => {
         const occurrence = getDueAlarmOccurrence(schedule, currentDate, 60_000, holidayDates)
         if (!occurrence) return
@@ -791,10 +798,21 @@ function App() {
         throw new Error(payload.error || '공휴일을 불러오지 못했습니다.')
       }
 
-      setHolidayItems(
-        payload.holidays
-          .map((holiday) => ({ date: holiday.date, name: holiday.name, enabled: true }))
-          .sort((a, b) => a.date.localeCompare(b.date)),
+      const previousHolidayStates = new Map(holidayItems.map((holiday) => [holiday.date, holiday.enabled]))
+      const nextHolidayItems = payload.holidays
+        .map((holiday) => ({
+          date: holiday.date,
+          name: holiday.name,
+          enabled: previousHolidayStates.get(holiday.date) ?? true,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+      setHolidayItems(nextHolidayItems)
+      const enabledDates = nextHolidayItems.filter((holiday) => holiday.enabled).map((holiday) => holiday.date)
+      setActiveAlarms((currentAlarms) =>
+        currentAlarms.filter((alarm) => {
+          const schedule = schedules.find((item) => item.id === alarm.id)
+          return !schedule || !isScheduleExcludedOnDate(schedule, new Date(), enabledDates)
+        }),
       )
       setHolidayNotice(`${currentYear}년 공휴일 ${payload.holidays.length}개를 저장했습니다.`)
     } catch (error) {
@@ -868,6 +886,22 @@ function App() {
     exceptionModalRef.current?.focus()
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') cancelExceptionModal()
+      if (event.key !== 'Tab' || !exceptionModalRef.current) return
+      const focusable = Array.from(
+        exceptionModalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
@@ -999,7 +1033,10 @@ function App() {
     }
 
     if (
-      schedules.some((schedule) => schedule.id !== editingId && hasSameScheduleTime(nextSchedule, schedule))
+      schedules.some(
+        (schedule) =>
+          schedule.id !== editingId && !schedule.oneTimeDate && hasSameScheduleTime(nextSchedule, schedule),
+      )
     ) {
       window.alert('같은 요일과 시간의 일정이 이미 있습니다.')
       return
@@ -1129,6 +1166,9 @@ function App() {
         <section className="next-alarm">
           <span>가장 가까운 알람</span>
           <strong>{nextTodayAlarm.schedule.title}</strong>
+          <small className="next-alarm-type">
+            {nextTodayAlarm.schedule.oneTimeDate ? '1회성 타이머' : '반복 일정'}
+          </small>
           <span>
             {formatAlarm(nextTodayAlarm.schedule.startTime, nextTodayAlarm.schedule.alarmBeforeMinutes)}
           </span>
@@ -1779,6 +1819,7 @@ function App() {
                       className={holiday.enabled ? 'holiday-chip enabled' : 'holiday-chip'}
                       key={holiday.date}
                       onClick={() => toggleHoliday(holiday.date)}
+                      aria-pressed={holiday.enabled}
                       title={holiday.name || holiday.date}
                       type="button"
                     >
