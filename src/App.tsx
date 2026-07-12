@@ -1717,6 +1717,20 @@ function App() {
             <a href={`${siteBaseUrl}faq/index.html`}>자주 묻는 질문</a>
           </p>
         </div>
+        <div>
+          <h2>활용 안내</h2>
+          <div className="footer-link-columns">
+            <p>
+              <a href={`${siteBaseUrl}guide/weekly-alarm/index.html`}>요일별 반복 알람</a><br />
+              <a href={`${siteBaseUrl}guide/study-alarm/index.html`}>공부 시간 알람</a><br />
+              <a href={`${siteBaseUrl}guide/game-raid/index.html`}>공격대·보스 레이드 알람</a>
+            </p>
+            <p>
+              <a href={`${siteBaseUrl}guide/workout-timer/index.html`}>운동 타이머</a><br />
+              <a href={`${siteBaseUrl}guide/work-schedule/index.html`}>회사 일정 알람</a>
+            </p>
+          </div>
+        </div>
       </footer>
 
       {exceptionModalOpen && (

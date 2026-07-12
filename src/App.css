@@ -1129,7 +1129,7 @@ button {
   box-shadow: var(--shadow);
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 20px auto 0;
   max-width: 1440px;
   padding: 12px;
@@ -1159,6 +1159,12 @@ button {
   font-size: 13px;
   line-height: 1.55;
   margin: 0;
+}
+
+.footer-link-columns {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .site-footer a:hover {
@@ -1409,6 +1415,10 @@ th {
   }
 
   .site-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-link-columns {
     grid-template-columns: 1fr;
   }
 }
