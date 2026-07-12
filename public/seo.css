@@ -160,7 +160,7 @@ p, li { font-size: 16px; }
 }
 
 .screen-shot {
-  background: #111827;
+  background: var(--page-surface-muted);
   border: 1px solid #cbd5e1;
   border-radius: 14px;
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
@@ -169,7 +169,14 @@ p, li { font-size: 16px; }
   max-width: 100%;
 }
 
-figcaption { color: #64748b; font-size: 13px; text-align: center; }
+.dark-only { display: block; }
+.light-only { display: none; }
+body:not(.dark) .dark-only { display: none; }
+body:not(.dark) .light-only { display: block; }
+
+.theme-image figure { margin: 0; }
+
+figcaption { color: var(--page-muted); font-size: 13px; text-align: center; }
 
 .info-grid {
   display: grid;
