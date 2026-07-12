@@ -20,6 +20,7 @@ export const getEmptyForm = (): ScheduleForm => ({
   memo: '',
   excludedDates: [],
   excludeHolidays: false,
+  oneTimeDate: null,
 })
 
 export const toMinutes = (time: string) => {
@@ -137,6 +138,7 @@ export const getAlarmOccurrencesAround = (
 
   for (let offset = -dayRange; offset <= dayRange; offset += 1) {
     const candidateDate = addDays(referenceDate, offset)
+    if (schedule.oneTimeDate && schedule.oneTimeDate !== formatDateKey(candidateDate)) continue
     if (!schedule.days.includes(getDayKeyFromDate(candidateDate))) continue
     if (isScheduleExcludedOnDate(schedule, candidateDate, holidayDates)) continue
     occurrences.push(getAlarmOccurrenceForStartDate(schedule, candidateDate))

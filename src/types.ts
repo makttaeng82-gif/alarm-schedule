@@ -28,6 +28,7 @@ export type Schedule = {
   memo: string
   excludedDates: string[]
   excludeHolidays: boolean
+  oneTimeDate: string | null
 }
 
 export type ScheduleForm = Omit<Schedule, 'id'>

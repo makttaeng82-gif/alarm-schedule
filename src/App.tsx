@@ -46,6 +46,7 @@ import {
   getNextEndTime,
   getStartTimeChange,
   getTodayKey,
+  formatDateKey,
   isScheduleExcludedOnDate,
   toMinutes,
 } from './timeUtils'
@@ -92,6 +93,7 @@ const isSchedule = (value: unknown): value is Schedule => {
     (!('excludedDates' in schedule) ||
       (Array.isArray(schedule.excludedDates) && schedule.excludedDates.every(isString))) &&
     (!('excludeHolidays' in schedule) || isBoolean(schedule.excludeHolidays))
+    && (!('oneTimeDate' in schedule) || schedule.oneTimeDate === null || isString(schedule.oneTimeDate))
   )
 }
 
@@ -236,6 +238,7 @@ const getInitialSchedules = (): Schedule[] => {
         memo: '예시',
         excludedDates: [],
         excludeHolidays: false,
+        oneTimeDate: null,
       },
     ]
   }
@@ -257,6 +260,9 @@ const getInitialSchedules = (): Schedule[] => {
               excludeHolidays: typeof (schedule as Schedule).excludeHolidays === 'boolean'
                 ? (schedule as Schedule).excludeHolidays
                 : false,
+              oneTimeDate: isString((schedule as Schedule).oneTimeDate)
+                ? (schedule as Schedule).oneTimeDate
+                : null,
             }
           : schedule,
       )
@@ -558,6 +564,7 @@ function App() {
         memo: '',
         excludedDates: [],
         excludeHolidays: false,
+        oneTimeDate: null,
       }])
     }, 10_000)
   }
@@ -583,6 +590,15 @@ function App() {
           dueSchedules.push(schedule)
         }
       })
+
+      if (dueSchedules.length > 0) {
+        const oneTimeIds = new Set(
+          dueSchedules.filter((schedule) => schedule.oneTimeDate).map((schedule) => schedule.id),
+        )
+        if (oneTimeIds.size > 0) {
+          setSchedules((current) => current.filter((schedule) => !oneTimeIds.has(schedule.id)))
+        }
+      }
 
       fireAlarmGroup(dueSchedules)
     }, 1000)
@@ -841,6 +857,7 @@ function App() {
       volume: form.volume,
       color: form.color,
       memo: `${nowDate.toLocaleTimeString()} 생성`,
+      oneTimeDate: formatDateKey(targetDate),
     }
 
     if (schedules.some((schedule) => hasSameScheduleTime(quickSchedule, schedule))) {
@@ -903,6 +920,7 @@ function App() {
       memo: schedule.memo,
       excludedDates: schedule.excludedDates,
       excludeHolidays: schedule.excludeHolidays,
+      oneTimeDate: schedule.oneTimeDate,
     })
     setEditingId(schedule.id)
     setExceptionDate('')
@@ -1270,7 +1288,7 @@ function App() {
           </div>
         </section>
 
-        <p className="timer-note">사용자 설정 타이머는 일정 예외 설정과 무관하게 작동합니다.</p>
+        <p className="timer-note">사용자 설정 타이머는 1회성으로 실행 후 자동 삭제되며, 일정 예외 설정과 무관하게 작동합니다.</p>
 
         <section className="panel schedule-panel">
           <div className="section-title">

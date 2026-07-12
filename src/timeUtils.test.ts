@@ -22,6 +22,7 @@ const baseSchedule: Schedule = {
   memo: '',
   excludedDates: [],
   excludeHolidays: false,
+  oneTimeDate: null,
 }
 
 const localStamp = (date: Date) =>
@@ -86,5 +87,11 @@ describe('timeUtils', () => {
   it('treats an excluded date as blocked for saved schedules', () => {
     const schedule = { ...baseSchedule, excludedDates: ['2026-07-06'] }
     expect(isScheduleExcludedOnDate(schedule, new Date(2026, 6, 6))).toBe(true)
+  })
+
+  it('limits a one-time timer to its saved date', () => {
+    const schedule = { ...baseSchedule, oneTimeDate: '2026-07-06' }
+    const currentDate = new Date(2026, 6, 13, 0, 0)
+    expect(getNextAlarmOccurrence(schedule, currentDate)).toBeNull()
   })
 })
