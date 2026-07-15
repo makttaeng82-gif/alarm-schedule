@@ -1748,6 +1748,19 @@ function App() {
             </p>
           </div>
         </div>
+        <div>
+          <h2>서비스 안내</h2>
+          <div className="footer-link-columns">
+            <p>
+              <a href={`${siteBaseUrl}about/index.html`}>서비스 소개</a><br />
+              <a href={`${siteBaseUrl}privacy/index.html`}>개인정보처리방침</a>
+            </p>
+            <p>
+              <a href={`${siteBaseUrl}data-policy/index.html`}>데이터 관리</a><br />
+              <a href={`${siteBaseUrl}updates/index.html`}>업데이트 내역</a>
+            </p>
+          </div>
+        </div>
       </footer>
 
       {exceptionModalOpen && (
